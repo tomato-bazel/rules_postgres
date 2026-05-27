@@ -1,0 +1,22 @@
+# Pg.Ir corpus + SFT dataset. Source-of-truth is the Lean spec
+# files + Rust crates under rust/pg_*/; this package exports the
+# extracted training data as Bazel-visible filegroups so the
+# rules_lora `lora_dataset` targets in //lora can reference them.
+
+package(default_visibility = ["//visibility:public"])
+
+# The messages_v1 SFT file. Built by running:
+#   python3 tools/corpus_extract/extract.py
+#   python3 tools/corpus_extract/training_pairs.py
+#   python3 tools/corpus_extract/to_messages_v1.py
+#
+# These scripts are deterministic given the cluster sources, so the
+# file is committed to the repo. The lora_dataset target's dataset
+# hash pins this snapshot for training-run reproducibility.
+exports_files([
+    "sft_messages_v1.jsonl",
+    "corpus.jsonl",
+    "train_c_to_lean.jsonl",
+    "train_lean_to_rust.jsonl",
+    "train_lean_to_c.jsonl",
+])

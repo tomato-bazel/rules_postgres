@@ -16,10 +16,80 @@ bazel_dep(name = "rules_github", version = "0.1.1")
 # at consumer-side load time, so consumers must be able to resolve it.
 bazel_dep(name = "rules_shell", version = "0.4.1")
 
+# Hermetic meson + ninja toolchain for `pg_meson_configure` (see
+# postgres/meson.bzl). The general-purpose machinery lives in
+# rules_meson; rules_postgres consumes its `meson_configure` rule and
+# wraps it with PG-specific option defaults + the pg_config.h overlay
+# pre-removal list.
+bazel_dep(name = "rules_meson", version = "0.0.0")
+local_path_override(
+    module_name = "rules_meson",
+    path = "../rules_meson",
+)
+
+# Lean toolchain. Used by `lean/Pg/*` — the typed PG AST + emit
+# infrastructure that lands here under the PgAst extraction (see
+# ~/Documents/rfcs/narrative/pgast-extraction-{proposal,review,
+# response,phase1-plan,phase1-ack}.md for the full decision trail).
+# Phase 1 (PgTy + PgAst + PgPretty + Catalog/* + tools/catalog_gen/)
+# moves on or after 2026-06-01; the scaffolding here lands first as
+# empty stubs + a smoke test so the receiving wiring is proven before
+# any content arrives.
+bazel_dep(name = "rules_lean", version = "0.3.0")
+local_path_override(
+    module_name = "rules_lean",
+    path = "../rules_lean",
+)
+
+# Minimal Lake workspace pinning the Lean toolchain. Currently no
+# external `require` packages — Phase 1 modules (PgTy + PgAst + PgPretty
+# + Catalog/*) only import from Lean core. Add requires here + in
+# tools/lake/lakefile.lean when later phases pull in mathlib/cslib.
+# Toolchain version must match Aion's tools/lake/lean-toolchain.
+lake = use_extension("@rules_lean//lean:lake.bzl", "lake")
+lake.workspace(
+    name = "rules_postgres_lake",
+    lakefile = "//tools/lake:lakefile.lean",
+    lake_manifest = "//tools/lake:lake-manifest.json",
+    lean_toolchain = "//tools/lake:lean-toolchain",
+    # Batteries (the one nominal `require` in our lakefile) doesn't
+    # have a Reservoir prebuilt-olean cache. allow_source_build makes
+    # rules_lean run `lake build batteries` from source.
+    allow_source_build = True,
+)
+use_repo(lake, "rules_postgres_lake")
+register_toolchains("@rules_postgres_lake//:lean_toolchain_def")
+
+# rules_lang — exposes `Polyglot.Sql.Ast` (the generic 32-ctor
+# SQL AST that `Pg.Ast` extends via the Pattern-A `Ext` slot).
+# Local override during Phase 1b until rules_lang publishes a
+# tagged release with the llvm-extension-as-dev-dependency gating
+# patch.
+bazel_dep(name = "rules_lang", version = "0.0.0")
+local_path_override(
+    module_name = "rules_lang",
+    path = "../rules_lang",
+)
+
+# rules_lora — Bazel-native LoRA fine-tuning. Used by Pg.Ir's
+# local-model fine-tune track: the Stream A LLM-authoring loop's
+# corpus (17 clusters × 230 fns at tools/corpus_extract/) feeds
+# directly into rules_lora's `messages_v1` SFT schema. The goal is
+# a small local model that authors Pg.Ir Lean specs, removing the
+# hosted-LLM dependency.
+bazel_dep(name = "rules_lora", version = "0.0.1")
+local_path_override(
+    module_name = "rules_lora",
+    path = "../rules_lora",
+)
+
 # Dev-only: only loaded by docs/BUILD.bazel.
 bazel_dep(name = "stardoc", version = "0.7.2", dev_dependency = True)
 
-# Dev-only smoke test wiring.
+# Dev-only smoke test wiring. Pulls libpg_query (for SQL parse-validation
+# examples) and the full Postgres source tree (for the pg_meson_configure
+# example under examples/meson_smoke).
 pg = use_extension("//postgres:extensions.bzl", "pg", dev_dependency = True)
 pg.query(version = "17-6.2.2")
-use_repo(pg, "libpg_query")
+pg.source(version = "17.6")
+use_repo(pg, "libpg_query", "postgres_src")

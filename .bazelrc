@@ -1,5 +1,10 @@
 common --enable_bzlmod
 
+# rules_lora uses `isolate = True` on its rules_rust crate_universe
+# extension. Required until Bazel makes isolated extension usages
+# non-experimental.
+common --experimental_isolated_extension_usages
+
 # Personal Bazel module registry (fastverk org) — hosts rules_github,
 # which rules_postgres depends on for github_source_repository.
 # Listed first so it wins over BCR for our own modules.
