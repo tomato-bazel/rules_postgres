@@ -1,0 +1,13 @@
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "author.py",
+    "PROMPT_TEMPLATE.md",
+])
+
+# All pilot configs ship together; author.py reads them from
+# pilots/<name>.toml by stem.
+filegroup(
+    name = "pilots",
+    srcs = glob(["pilots/*.toml"]),
+)

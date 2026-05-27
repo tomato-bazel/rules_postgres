@@ -1,0 +1,64 @@
+# Stream A pilot config — copy to `<cluster>.toml` and fill in.
+#
+# Keys correspond to <<placeholder>> markers in PROMPT_TEMPLATE.md.
+# String values are substituted verbatim; list values are rendered as
+# `- item` bullets.
+#
+# Run with:
+#   tools/stream_a/author.py --pilot <cluster> > /tmp/<cluster>_prompt.txt
+# Then pipe the prompt into your agent of choice.
+
+# Short cluster identifier (e.g. "int_div", "interval", "macaddr").
+"cluster name" = "int_div"
+
+# One-line description plus function count.
+"one-line description + function count" = "integer division (int2div, int4div, int8div); 3 functions"
+
+# Closest existing clusters to read first. Each line gets rendered as
+# a bullet pointing at the relevant files.
+"list 1-3 closest existing clusters with their Common/Emit/EmitC files + regen + grounding scripts + the crate directory" = [
+    "rules_postgres/lean/Pg/Ir/Emit/IntArithCommon.lean + IntArith.lean + IntArithC.lean",
+    "rules_postgres/tools/regen/regen-int-arith.sh",
+    "rules_postgres/rust/pg_int4_arith/{Cargo.toml,build.rs,src/lib.rs,c_oracle/,tests/}",
+]
+
+# pg_fcinfo helpers the target body needs.
+"list specific helpers the target needs" = [
+    "pg_sub_s32_overflow",
+    "pg_ereport_int_div_by_zero",
+]
+
+# Real Postgres source path relative to the postgres_src bazel checkout.
+"src/backend/..." = "src/backend/utils/adt/int.c"
+"rest of path" = "src/backend/utils/adt/int.c"
+
+# Body sourcing instructions.
+"inline the actual function bodies you want vendored, or grep instructions to find them" = "Grep the PG source above for each fn name (e.g. `int4div(PG_FUNCTION_ARGS)`). Vendor each fn body byte-identical into c_oracle/int_div.c — the C oracle is the reference; behavioral diff failures mean the Lean spec drifted from PG semantics."
+
+# Files the agent must create. Rendered as bullets.
+"list of files to create with their paths" = [
+    "lean/Pg/Ir/Emit/IntDivCommon.lean",
+    "lean/Pg/Ir/Emit/IntDiv.lean",
+    "lean/Pg/Ir/Emit/IntDivC.lean",
+    "tools/regen/regen-int-div.sh",
+    "rust/pg_int4_div/c_oracle/renamed_int_div.c",
+    "rust/pg_int4_div/c_oracle/int_div.c",
+    "rust/pg_int4_div/c_oracle/wrappers.c",
+    "rust/pg_int4_div/src/lib.rs",
+    "rust/pg_int4_div/tests/diff_int_div.rs",
+    "Plus: append a struct to CLUSTERS in tools/regen/clusters.bzl",
+]
+
+# Verification commands. Bazel-native — no shell-out aggregators.
+"regen + check scripts" = "tools/regen/regen-int-div.sh"
+"regen-*.sh" = "tools/regen/regen-int-div.sh"
+"check-*-grounding.sh" = "bazel test //rust:gate3_int_div"
+"crate dir" = "rust/pg_int4_div"
+
+# Other clusters whose gates must keep passing.
+"list of other check-*-grounding.sh scripts that should still pass" = [
+    "bazel test //:gates  # all three gates; verify total still 118+",
+]
+
+# Word limit for the agent's final report.
+"word limit" = 1000
