@@ -64,8 +64,13 @@ def touch : Unit :=
         (Pg.Ast.Identifier.qualified "graph" "has_permission") [])
   -- Pg.Ast.BodyStmt: touch a simple case.
   let _ : Pg.Ast.BodyStmt := Pg.Ast.BodyStmt.exitLoop
-  -- Pg.Pretty: still stubbed.
-  let _ := Pg.Pretty.placeholder
+  -- Pg.Pretty: real content landed Phase 1b. Render the
+  -- Pg.Ast.Expr value above to a SQL fragment to exercise the
+  -- printExpr ↔ printExprExt mutual dispatch.
+  let _ : String := Pg.Pretty.printExpr
+    (Polyglot.Sql.Ast.Expr.ext
+      (Pg.Ast.ExprExt.callQualified
+        (Pg.Ast.Identifier.qualified "graph" "has_permission") []))
   -- Pg.Catalog (umbrella): re-exports the 7 sub-modules; no
   -- placeholder to touch.
   ()
