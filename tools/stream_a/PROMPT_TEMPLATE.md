@@ -28,10 +28,10 @@ Target: <<cluster name>> — <<one-line description + function count>>.
 ## What Pg.Ir is
 
 Lean spec → emits Rust V1 fmgr bodies AND real-style Postgres C.
-Three verification gates:
-1. Lean → Rust regen idempotent (`regen-*.sh --check`)
-2. Cargo diff-test against vendored real-PG bodies (`cargo test --release`)
-3. clang AST structural diff vs real Postgres source (`check-*-grounding.sh`)
+Three verification gates, all Bazel-native (run via `bazel test //:gates`):
+1. Lean → Rust regen idempotent (`//tools/regen:gate1_all`)
+2. Cargo diff-test against vendored real-PG bodies (`//tools/regen:gate2_all`)
+3. clang AST structural diff vs real Postgres source (`//tools/regen:gate3_all`)
 
 ## Closest exemplar(s) — read FIRST
 
@@ -87,20 +87,22 @@ of each one's last line (the `test result:` / `ok:` line) in your final
 report:
 
 ```bash
-chmod +x <<regen + check scripts>>
-bash <<regen-*.sh>>                 # initial generate
-bash <<regen-*.sh>> --check         # must say "ok: ... matches"
-cd <<crate dir>> && cargo test --release 2>&1 | grep "test result:"
-bash <<check-*-grounding.sh>>       # must say "ok: N / N functions ..."
+# 1. Generate the Rust + C emits from your Lean spec via Bazel.
+tools/regen/refresh.py <<cluster name>>
+
+# 2. Run all three gates (Gate 1 regen-idempotence, Gate 2 cargo
+#    behavioral diff, Gate 3 clang AST structural diff).
+bazel test //:gates --test_output=errors
 ```
 
 If `cargo test` reports ANY failures, debug them — DO NOT report success
 until cargo shows `test result: ok. N passed; 0 failed`. Common failure
 mode: see "CRITICAL C oracle conventions" above.
 
-Also verify no regressions:
+Also verify no regressions across the rest of the cluster set:
 ```bash
-<<list of other check-*-grounding.sh scripts that should still pass>>
+bazel test //:gates  # all clusters; the per-test pass count must
+                     # still match the pre-change total
 ```
 
 ## Report format
@@ -131,7 +133,7 @@ Net Stream A savings stays at ~7-10× per cluster vs hand-authoring.
 2. **Skipped own-cluster grounding** (date-arith): agent ran
    grounding for OTHER clusters ("no regressions") but did not
    actually verify its OWN cluster's grounding output. Prompt v3
-   fix: require pasting the exact `bash check-<cluster>-grounding.sh`
+   fix: require pasting the exact `bazel test //rust:gate3_<cluster>`
    final line, and require the explicit sentence "I confirmed N/N
    functions pass AST grounding for <cluster>".
 3. **Inline-vs-delegated body shape divergence** (cash-arith,

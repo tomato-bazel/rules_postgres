@@ -49,10 +49,7 @@
     "Plus: append a struct to CLUSTERS in tools/regen/clusters.bzl",
 ]
 
-# Verification commands. Bazel-native — no shell-out aggregators.
-"regen + check scripts" = "tools/regen/regen-int-div.sh"
-"regen-*.sh" = "tools/regen/regen-int-div.sh"
-"check-*-grounding.sh" = "bazel test //rust:gate3_int_div"
+# Verification: refresh.py + bazel test. No host shell-out.
 "crate dir" = "rust/pg_int4_div"
 
 # Other clusters whose gates must keep passing.
