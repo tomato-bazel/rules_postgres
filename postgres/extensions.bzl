@@ -202,6 +202,12 @@ exports_files(
         "src/backend/utils/adt/*.c",
         "src/backend/access/hash/*.c",
         "src/backend/utils/hash/*.c",
+        # System-catalog .dat seed files — consumed by rules_postgres'
+        # Pg.Catalog.Dat round-trip gate (lean/Pg/Catalog/Dat.lean).
+        # Pinning catalog truth to @postgres_src means a PG version
+        # bump propagates as a single MODULE.bazel change instead of
+        # a manual re-vendor.
+        "src/include/catalog/*.dat",
     ], allow_empty = True),
 )
 

@@ -49,7 +49,9 @@ def targets : List String := [
 ]
 
 def roundTripOne (name : String) : IO (Option String) := do
-  let src ← IO.FS.readFile s!"Pg/Catalog/dat/{name}"
+  -- `.dat` files are staged by lean_emit.data from @postgres_src
+  -- at their workspace-relative path (rules_lean 0.3.4 contract).
+  let src ← IO.FS.readFile s!"src/include/catalog/{name}"
   match parseFile src with
   | .error e => pure (some s!"{name}: parse error: {e}")
   | .ok f₁ =>

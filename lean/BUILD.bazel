@@ -43,7 +43,37 @@ lean_regen_test(
         "Pg/Catalog/Dat.lean",
         "Pg/Catalog/DatRoundTrip.lean",
     ],
-    data = glob(["Pg/Catalog/dat/*.dat"]),
+    # .dat files pulled directly from the pinned @postgres_src checkout
+    # (no vendoring). rules_lean 0.3.4's lean_emit.data stages external-
+    # repo files at their workspace-relative path, so each lands at
+    # $WORK/src/include/catalog/<name>.dat — matching the path the
+    # entry uses for `IO.FS.readFile`.
+    data = [
+        "@postgres_src//:src/include/catalog/pg_aggregate.dat",
+        "@postgres_src//:src/include/catalog/pg_am.dat",
+        "@postgres_src//:src/include/catalog/pg_amop.dat",
+        "@postgres_src//:src/include/catalog/pg_amproc.dat",
+        "@postgres_src//:src/include/catalog/pg_authid.dat",
+        "@postgres_src//:src/include/catalog/pg_cast.dat",
+        "@postgres_src//:src/include/catalog/pg_class.dat",
+        "@postgres_src//:src/include/catalog/pg_collation.dat",
+        "@postgres_src//:src/include/catalog/pg_conversion.dat",
+        "@postgres_src//:src/include/catalog/pg_database.dat",
+        "@postgres_src//:src/include/catalog/pg_language.dat",
+        "@postgres_src//:src/include/catalog/pg_namespace.dat",
+        "@postgres_src//:src/include/catalog/pg_opclass.dat",
+        "@postgres_src//:src/include/catalog/pg_operator.dat",
+        "@postgres_src//:src/include/catalog/pg_opfamily.dat",
+        "@postgres_src//:src/include/catalog/pg_proc.dat",
+        "@postgres_src//:src/include/catalog/pg_range.dat",
+        "@postgres_src//:src/include/catalog/pg_tablespace.dat",
+        "@postgres_src//:src/include/catalog/pg_ts_config.dat",
+        "@postgres_src//:src/include/catalog/pg_ts_config_map.dat",
+        "@postgres_src//:src/include/catalog/pg_ts_dict.dat",
+        "@postgres_src//:src/include/catalog/pg_ts_parser.dat",
+        "@postgres_src//:src/include/catalog/pg_ts_template.dat",
+        "@postgres_src//:src/include/catalog/pg_type.dat",
+    ],
     entry = "Pg/Catalog/DatRoundTrip.lean",
     expected = "Pg/Catalog/dat/_round_trip_expected.txt",
     out = "catalog_dat_round_trip.out",

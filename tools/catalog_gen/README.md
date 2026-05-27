@@ -39,7 +39,8 @@ Validation:
 
 ## Status (2026-05-27)
 
-  - [x] All 24 vendored `.dat` files: `lean/Pg/Catalog/dat/*.dat`
+  - [x] `.dat` files pulled directly from `@postgres_src` (no
+        vendoring) via rules_lean 0.3.4's external-repo `data` attr.
   - [x] Lean grammar types + tokenizer-driven parser + canonical
         emitter in `lean/Pg/Catalog/Dat.lean`. Handles quoted strings
         with `\\` and `\'` escapes, bare-identifier values,
