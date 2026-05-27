@@ -4,9 +4,11 @@
 Lean-native parser + emitter for Postgres' `.dat` system-catalog seed
 files (`pg_namespace.dat`, `pg_type.dat`, `pg_proc.dat`, ...).
 
-Grounded by PG's own `Catalog.pm::ParseData` (vendored at
-`tools/catalog_gen/reference/Catalog.pm`). PG itself delegates to Perl
-`eval` on each hash-ref line; we tokenize directly.
+Grounded against PG's own `Catalog.pm::ParseData` (PG itself
+delegates to Perl `eval` on each hash-ref line; we tokenize
+directly). The 24 vendored `.dat` files under `Pg/Catalog/dat/`
+round-trip stable through this parser, certified by the Bazel
+`gate_catalog_dat_round_trip` target.
 
 ## Grammar (subset PG's .dat files actually use)
 

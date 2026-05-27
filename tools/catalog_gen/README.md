@@ -9,8 +9,9 @@ participates in the same Bazel-native gates as Pg.Ir clusters.
 
 `.dat` files in `@postgres_src//src/include/catalog/` are the source
 of truth for PG's bootstrap system catalog rows. PG itself parses
-them via `Catalog.pm::ParseData` (which uses Perl `eval` on the input
-— see `reference/Catalog.pm`, vendored here as the grammar reference).
+them via `Catalog.pm::ParseData` (which uses Perl `eval` on the
+input — see `src/backend/catalog/Catalog.pm` in the pinned PG source
+tree if you need to consult the upstream grammar).
 
 The Lean-native pipeline:
 
@@ -38,7 +39,6 @@ Validation:
 
 ## Status (2026-05-27)
 
-  - [x] Vendored reference grammar: `reference/Catalog.pm` (from PG 17.6)
   - [x] All 24 vendored `.dat` files: `lean/Pg/Catalog/dat/*.dat`
   - [x] Lean grammar types + tokenizer-driven parser + canonical
         emitter in `lean/Pg/Catalog/Dat.lean`. Handles quoted strings
