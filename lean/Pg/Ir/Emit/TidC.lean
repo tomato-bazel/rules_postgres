@@ -79,14 +79,20 @@ def renderClampFn (fam : TidClampFamily) : String :=
 def renderHashFn (fam : TidHashFamily) : String :=
   let fnName := fam.fnName
   if fam.extended then
+    -- Declare `seed` as a local before the return — matches real PG's
+    -- statement structure. Inlining `PG_GETARG_INT64(1)` directly into
+    -- the call produces functionally-identical output but a CompoundStmt
+    -- with 2 inner statements vs real PG's 3, which Gate 3's structural
+    -- diff flags.
     "Datum\n" ++
     fnName ++ "(PG_FUNCTION_ARGS)\n" ++
     "{\n" ++
     "\tItemPointer key = PG_GETARG_ITEMPOINTER(0);\n" ++
+    "\tuint64\t\tseed = PG_GETARG_INT64(1);\n" ++
     "\n" ++
     "\treturn hash_any_extended((unsigned char *) key,\n" ++
     "\t\t\t\t\t\t   sizeof(BlockIdData) + sizeof(OffsetNumber),\n" ++
-    "\t\t\t\t\t\t   PG_GETARG_INT64(1));\n" ++
+    "\t\t\t\t\t\t   seed);\n" ++
     "}\n"
   else
     "Datum\n" ++

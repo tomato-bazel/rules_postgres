@@ -79,14 +79,9 @@ jobs:
   # rules_lang's c_ast_dump_single (cc toolchain → AST JSON) +
   # c_ast_struct_diff_test (hermetic rust_binary). Catches algorithmic
   # divergence even when Gate 2 (behavioral) passes on sampled inputs.
-  #
-  # KNOWN-FAILING: pg_tid:hashtidextended currently diverges structurally
-  # (`array length 3 vs 2` in the Lean-emit AST). Marked continue-on-error
-  # while triaged; drop the flag once the Lean spec is fixed.
   gate3_clang_struct_diff:
     name: gate 3 — clang struct diff
     runs-on: ${{ matrix.os }}
-    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:

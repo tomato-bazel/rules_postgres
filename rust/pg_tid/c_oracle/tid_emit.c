@@ -111,8 +111,9 @@ Datum
 hashtidextended(PG_FUNCTION_ARGS)
 {
 	ItemPointer key = PG_GETARG_ITEMPOINTER(0);
+	uint64		seed = PG_GETARG_INT64(1);
 
 	return hash_any_extended((unsigned char *) key,
 						   sizeof(BlockIdData) + sizeof(OffsetNumber),
-						   PG_GETARG_INT64(1));
+						   seed);
 }
