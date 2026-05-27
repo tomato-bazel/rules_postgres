@@ -5,11 +5,28 @@ common --enable_bzlmod
 # non-experimental.
 common --experimental_isolated_extension_usages
 
-# Personal Bazel module registry (fastverk org) — hosts rules_github,
-# which rules_postgres depends on for github_source_repository.
-# Listed first so it wins over BCR for our own modules.
+# Personal Bazel module registries (fastverk org). Listed in
+# priority order — the premium private registry first, then the
+# public registry, then BCR.
+#
+# Premium private registry hosts the private modules this build
+# depends on: rules_lang, rules_lora, rules_meson. Fetching its
+# source tarballs requires GitHub auth — set GITHUB_TOKEN / GH_TOKEN
+# in the environment, configure ~/.netrc with codeload.github.com
+# credentials, or use a Bazel credential helper.
+common --registry=https://raw.githubusercontent.com/fastverk/bazel-registry-premium/main/
+# Public registry hosts rules_github, rules_lean, and the other
+# open-source fastverk Bazel rules.
 common --registry=https://raw.githubusercontent.com/fastverk/bazel-registry/main/
 common --registry=https://bcr.bazel.build/
+
+# Credential helper for fetching private GitHub tarballs (referenced
+# by the premium registry's source.json entries). Forwards
+# `gh auth token` (or GITHUB_TOKEN env) as a Bearer auth header.
+common --credential_helper=*.github.com=%workspace%/tools/credhelper/gh-cred-helper.sh
+common --credential_helper=github.com=%workspace%/tools/credhelper/gh-cred-helper.sh
+common --credential_helper=raw.githubusercontent.com=%workspace%/tools/credhelper/gh-cred-helper.sh
+common --credential_helper=codeload.github.com=%workspace%/tools/credhelper/gh-cred-helper.sh
 
 test --test_output=errors
 test --test_summary=terse

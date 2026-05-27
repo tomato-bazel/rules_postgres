@@ -22,10 +22,6 @@ bazel_dep(name = "rules_shell", version = "0.4.1")
 # wraps it with PG-specific option defaults + the pg_config.h overlay
 # pre-removal list.
 bazel_dep(name = "rules_meson", version = "0.0.0")
-local_path_override(
-    module_name = "rules_meson",
-    path = "../rules_meson",
-)
 
 # Lean toolchain. Used by `lean/Pg/*` — the typed PG AST + emit
 # infrastructure that lands here under the PgAst extraction (see
@@ -62,14 +58,8 @@ register_toolchains("@rules_postgres_lake//:lean_toolchain_def")
 
 # rules_lang — exposes `Polyglot.Sql.Ast` (the generic 32-ctor
 # SQL AST that `Pg.Ast` extends via the Pattern-A `Ext` slot).
-# Local override during Phase 1b until rules_lang publishes a
-# tagged release with the llvm-extension-as-dev-dependency gating
-# patch.
+# Resolved via the premium private registry (see .bazelrc).
 bazel_dep(name = "rules_lang", version = "0.0.0")
-local_path_override(
-    module_name = "rules_lang",
-    path = "../rules_lang",
-)
 
 # rules_lora — Bazel-native LoRA fine-tuning. Used by Pg.Ir's
 # local-model fine-tune track: the Stream A LLM-authoring loop's
@@ -78,10 +68,6 @@ local_path_override(
 # a small local model that authors Pg.Ir Lean specs, removing the
 # hosted-LLM dependency.
 bazel_dep(name = "rules_lora", version = "0.0.1")
-local_path_override(
-    module_name = "rules_lora",
-    path = "../rules_lora",
-)
 
 # Dev-only: only loaded by docs/BUILD.bazel.
 bazel_dep(name = "stardoc", version = "0.7.2", dev_dependency = True)
