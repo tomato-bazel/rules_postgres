@@ -1,3 +1,21 @@
 package(default_visibility = ["//visibility:public"])
 
 exports_files(["MODULE.bazel"])
+
+# Convenience top-level handle for the three Pg.Ir verification gates.
+# Resolves to `//tools/regen:gates_all`:
+#
+#   bazel test //:gates
+#
+# The component gates can also be invoked individually:
+#   bazel test //tools/regen:gate1_regen_idempotence
+#   bazel test //tools/regen:gate2_behavioral_diff
+#   bazel test //tools/regen:gate3_clang_struct_diff
+#
+# All three are tagged `manual` because they shell out to host
+# toolchains (lean, cargo, clang) and require a populated Bazel cache
+# for the postgres_src/libpg_query inputs.
+alias(
+    name = "gates",
+    actual = "//tools/regen:gates_all",
+)
