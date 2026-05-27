@@ -1,118 +1,35 @@
-"""Bazel-native Pg.Ir cluster gate wiring.
+"""Gate 2 + Gate 3 cluster wiring (rules_rust + rules_lang).
 
-Generates per-cluster `lean_emit` + `diff_test` pairs that together
-implement Gate 1 (regen idempotence) without shelling out to host
-`lean`. Each cluster gets:
+Lives separately from `gate1.bzl` because this module loads
+`@rules_rust` and `@rules_lang`, both of which rules_postgres
+declares as `dev_dependency = True`. Loading is gated behind
+`rust/pg_<crate>/BUILD.bazel` files (themselves dev-only), so
+cross-repo consumers that only reach into `//lean:...` (via
+`gate1.bzl`) never trigger this module's loads.
 
-  - <name>_rs_emit       lean_emit producing the Rust emit to stdout
-  - gate1_<name>         diff_test asserting the committed src/lib.rs
-                         matches the lean_emit output
-  - <name>_c_emit        (clusters with a C oracle) lean_emit for the
-                         real-PG-headers form
-  - gate1_<name>_c       (clusters with a C oracle) diff_test for the
-                         committed c_oracle/<cluster>_emit.c
+Public surface:
 
-Important: this macro MUST be invoked from `lean/BUILD.bazel`. The
-underlying `lean_emit` rule strips the calling package prefix from
-each src's short_path, so the srcs must live in (or under) the same
-package as the rule. The lean/ tree is where they live.
+  - `pg_ir_cluster()` — single per-crate BUILD entry point that
+    generates the cc_library(c_oracle) + rust_library + rust_test +
+    filegroups + optional Gate 3 wiring for the cluster owning the
+    calling package (looked up by `native.package_name()`).
+  - `gate3_cluster(name, pg_source, lean_emit_c, fn_names)` — direct
+    Gate 3 wiring for ad-hoc usage outside the standard cluster
+    layout. Invoked transitively by `pg_ir_cluster()` when the spec
+    has `lean_emit_c = True`.
+  - `gate2_test_labels(clusters)` / `gate3_test_labels(clusters)` —
+    iteration helpers used by `tools/regen/BUILD.bazel` to populate
+    the `gate2_all` / `gate3_all` test_suite `tests` lists.
+
+Gate 1 (regen idempotence) lives in `gate1.bzl` — split out to keep
+`lean/BUILD.bazel` loadable by cross-repo consumers without pulling
+in rules_rust.
 """
 
-load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("@rules_cc//cc:defs.bzl", "cc_library")
 load("@rules_lang//c:rules.bzl", "c_ast_dump_single", "c_ast_struct_diff_test_suite")
-load("@rules_lean//lean:lean.bzl", "lean_emit")
 load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
 load(":clusters.bzl", "cluster_for_package")
-
-# Standard Pg.Ir prelude — the modules every Lean emit imports
-# transitively before its cluster-specific files. Matches the
-# `lean -o Pg/Ir/Types.olean ...; lean -o Pg/Ir/Datum.olean ...` pairs
-# at the top of every regen-*.sh.
-PG_IR_PRELUDE = [
-    "Pg/Ir/Types.lean",
-    "Pg/Ir/Datum.lean",
-]
-
-# Older clusters (everything except macaddr/tid/uuid) also import
-# Pg/Ir/Cmp.lean + Pg/Ir/Emit/Common.lean before their cluster modules.
-PG_IR_OLD_BASE = PG_IR_PRELUDE + [
-    "Pg/Ir/Cmp.lean",
-    "Pg/Ir/Emit/Common.lean",
-]
-
-def gate1_cluster(
-        name,
-        rust_entry,
-        rust_target,
-        srcs,
-        c_entry = None,
-        c_target = None,
-        c_extra_srcs = None):
-    """Wire Gate 1 (regen idempotence) for one Pg.Ir cluster.
-
-    Args:
-      name: stem for generated targets (e.g., `int_arith`).
-      rust_entry: package-relative path of the Rust-emitting Lean main
-        (e.g., `Pg/Ir/Emit/IntArith.lean`).
-      rust_target: Bazel label of the committed Rust emit
-        (e.g., `//rust/pg_int4_arith:lib_rs`).
-      srcs: ordered list of Lean source paths (relative to `lean/`)
-        compiled by the Rust-emitting lean_emit. Order matters —
-        lean_emit compiles them sequentially. Must include the entry.
-      c_entry: optional package-relative path of the C-emitting Lean
-        main (e.g., `Pg/Ir/Emit/UuidC.lean`). Only set for clusters
-        that also emit a real-PG-headers C file.
-      c_target: optional Bazel label of the committed C emit
-        (e.g., `//rust/pg_uuid:uuid_emit_c`). Required when c_entry is set.
-      c_extra_srcs: optional additional Lean srcs needed by the C
-        emit beyond `srcs` (typically just `[<Cluster>C.lean]`).
-    """
-    rust_emit = name + "_rs_emit"
-
-    lean_emit(
-        name = rust_emit,
-        srcs = srcs,
-        entry = rust_entry,
-        out = rust_emit + ".rs",
-    )
-
-    diff_test(
-        name = "gate1_" + name,
-        file1 = ":" + rust_emit,
-        file2 = rust_target,
-    )
-
-    if c_entry:
-        if not c_target:
-            fail("c_target is required when c_entry is set")
-        c_emit = name + "_c_emit"
-        c_srcs = list(srcs) + (list(c_extra_srcs) if c_extra_srcs else [])
-
-        lean_emit(
-            name = c_emit,
-            srcs = c_srcs,
-            entry = c_entry,
-            out = c_emit + ".c",
-        )
-
-        diff_test(
-            name = "gate1_" + name + "_c",
-            file1 = ":" + c_emit,
-            file2 = c_target,
-        )
-
-# ─── Gate 3 — clang AST structural diff (Bazel-native) ────────────
-#
-# Per-cluster macro that wires up:
-#   - c_ast_dump_single(<name>_lean_ast)   on the Lean-emit C (right)
-#   - c_ast_dump_single(<name>_pg_ast)     on the real PG source (left)
-#   - c_ast_struct_diff_test_suite(gate3_<name>)  per function in
-#     `fn_names`. Test name pattern: `gate3_<name>_<fn_name>`.
-#
-# Both AST dumps depend on `@postgres_src//:pg_headers` and
-# `@libpg_query//:pg_generated_headers` so postgres.h, utils/uuid.h,
-# fmgrprotos.h, errcodes.h, etc. resolve identically on both sides.
 
 def gate3_cluster(name, pg_source, lean_emit_c, fn_names):
     """Wire Gate 3 (clang AST structural diff) for one Pg.Ir cluster.
@@ -120,7 +37,7 @@ def gate3_cluster(name, pg_source, lean_emit_c, fn_names):
     Args:
       name: stem for generated targets (e.g., `uuid`).
       pg_source: Bazel label of the real Postgres source file
-        (e.g., `@postgres_src//src/backend/utils/adt:uuid.c`).
+        (e.g., `@postgres_src//:src/backend/utils/adt/uuid.c`).
       lean_emit_c: Bazel label of the Lean-emit real-PG-headers C
         file (e.g., `:uuid_emit_c`).
       fn_names: list of C function names whose AST subtrees the
@@ -163,11 +80,12 @@ def gate3_cluster(name, pg_source, lean_emit_c, fn_names):
 # Per-crate BUILD.bazel collapses to:
 #
 #   load("//tools/regen:cluster.bzl", "pg_ir_cluster")
+#   package(default_visibility = ["//visibility:public"])
 #   pg_ir_cluster()
 #
 # All cluster-specific variation (c_oracle filename base, palloc/libc
 # deps, has-a-C-emit, function lists for Gate 3) flows from the entry
-# in tools/regen/clusters.bzl.
+# in `tools/regen/clusters.bzl`.
 
 def pg_ir_cluster():
     """Wire Gate 2 + Gate 3 for the cluster owning the current package."""
@@ -242,59 +160,8 @@ def pg_ir_cluster():
             fn_names = spec.gate3_fn_names,
         )
 
-# ─── Iteration helpers consumed by lean/BUILD.bazel + tools/regen ──
-
-def wire_all_gate1(clusters):
-    """Generate gate1_cluster() per cluster from a centralized list.
-
-    Must be called from `lean/BUILD.bazel` (lean_emit's srcs need to
-    live in or under the calling package). Reads the prelude variant
-    + cluster_common toggle + emit-c flags from each spec.
-    """
-    for spec in clusters:
-        srcs = list(PG_IR_OLD_BASE if spec.lean_prelude == "old" else PG_IR_PRELUDE)
-        if spec.gate1_extra_lean_srcs:
-            srcs = srcs + list(spec.gate1_extra_lean_srcs)
-        if not spec.lean_no_cluster_common:
-            srcs.append("Pg/Ir/Emit/{}Common.lean".format(spec.lean_module))
-        srcs.append("Pg/Ir/Emit/{}.lean".format(spec.lean_module))
-
-        # Cluster name for gate1 targets — match the per-crate base
-        # (so gate1_int_div pairs with diff_int_div, gate1_int_arith
-        # with diff_int4_arith from pg_int4_arith, etc.).
-        gate_name = spec.c_base
-
-        rust_target = "//rust/{}:lib_rs".format(spec.crate)
-
-        if spec.lean_emit_c:
-            gate1_cluster(
-                name = gate_name,
-                rust_entry = "Pg/Ir/Emit/{}.lean".format(spec.lean_module),
-                rust_target = rust_target,
-                srcs = srcs,
-                c_entry = "Pg/Ir/Emit/{}C.lean".format(spec.lean_module),
-                c_target = "//rust/{}:{}_emit_c".format(spec.crate, spec.c_base),
-                c_extra_srcs = ["Pg/Ir/Emit/{}C.lean".format(spec.lean_module)],
-            )
-        else:
-            gate1_cluster(
-                name = gate_name,
-                rust_entry = "Pg/Ir/Emit/{}.lean".format(spec.lean_module),
-                rust_target = rust_target,
-                srcs = srcs,
-            )
-
-def gate1_test_labels(clusters):
-    """Return the list of `//lean:gate1_<name>{,_c}` labels for `:gate1_all`."""
-    labels = []
-    for spec in clusters:
-        labels.append("//lean:gate1_{}".format(spec.c_base))
-        if spec.lean_emit_c:
-            labels.append("//lean:gate1_{}_c".format(spec.c_base))
-    return sorted(labels)
-
 def gate2_test_labels(clusters):
-    """Return the list of `//rust/<crate>:<diff_test>` labels for `:gate2_all`,
+    """Return `//rust/<crate>:<diff_test>` labels for `:gate2_all`,
     plus the pg_fcinfo round_trip test (always part of Gate 2)."""
     labels = ["//rust/pg_fcinfo:round_trip"]
     for spec in clusters:
@@ -303,7 +170,7 @@ def gate2_test_labels(clusters):
     return sorted(labels)
 
 def gate3_test_labels(clusters):
-    """Return the list of `//rust/<crate>:gate3_<base>` labels for `:gate3_all`."""
+    """Return `//rust/<crate>:gate3_<base>` labels for `:gate3_all`."""
     labels = []
     for spec in clusters:
         if spec.lean_emit_c and spec.pg_source and spec.gate3_fn_names:

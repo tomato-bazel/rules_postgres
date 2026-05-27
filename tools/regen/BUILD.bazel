@@ -1,10 +1,6 @@
-load(
-    "//tools/regen:cluster.bzl",
-    "gate1_test_labels",
-    "gate2_test_labels",
-    "gate3_test_labels",
-)
+load("//tools/regen:cluster.bzl", "gate2_test_labels", "gate3_test_labels")
 load("//tools/regen:clusters.bzl", "CLUSTERS")
+load("//tools/regen:gate1.bzl", "gate1_test_labels")
 
 package(default_visibility = ["//visibility:public"])
 

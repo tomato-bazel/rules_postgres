@@ -1,6 +1,6 @@
 load("@rules_lean//lean:lean.bzl", "lean_test")
-load("//tools/regen:cluster.bzl", "wire_all_gate1")
 load("//tools/regen:clusters.bzl", "CLUSTERS")
+load("//tools/regen:gate1.bzl", "wire_all_gate1")
 
 # Expose all Pg.* Lean source files publicly so cross-repo
 # consumers (e.g. Aion's lean_test targets) can list them in
