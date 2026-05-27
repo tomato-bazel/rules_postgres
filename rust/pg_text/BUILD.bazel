@@ -34,6 +34,7 @@ rust_test(
         ":pg_text",
         "//rust/pg_fcinfo",
         "@crates//:proptest",
+        "//rust/pg_palloc",
     ],
 )
 

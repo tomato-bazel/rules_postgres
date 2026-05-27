@@ -34,6 +34,7 @@ rust_test(
         ":pg_interval",
         "//rust/pg_fcinfo",
         "@crates//:proptest",
+        "//rust/pg_palloc",
     ],
 )
 

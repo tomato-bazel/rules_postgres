@@ -53,11 +53,12 @@ jobs:
           repository-cache: true
       - run: bazel test --jobs=4 //tools/regen:gate1_all --test_output=errors
 
-  # Gate 2 — cluster behavioral diff-test. For each emit-Rust cluster
-  # crate with a `tests/diff_*.rs` harness, runs `cargo test --release`
-  # to assert bit-identical Datums + matching FmgrErrorKind between
-  # Lean-emitted Rust and the vendored real-PG C body. Each c_oracle/
-  # is self-contained — no PG checkout needed.
+  # Gate 2 — cluster behavioral diff-test. Bazel-native: each
+  # rust/pg_<cluster>/ ships cc_library(c_oracle) + rust_library +
+  # rust_test(diff_<cluster>). Tests link the vendored real-PG C body
+  # via the setjmp wrapper and assert bit-identical Datums + matching
+  # FmgrErrorKind. Rust toolchain hermetic via rules_rust — no rustup
+  # install needed.
   gate2_behavioral_diff:
     name: gate 2 — behavioral diff
     runs-on: ${{ matrix.os }}
@@ -67,26 +68,9 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: bazel-contrib/setup-bazel@0.10.0
         with:
-          workspaces: |
-            rust/pg_bytea
-            rust/pg_cash_arith
-            rust/pg_date_arith
-            rust/pg_float_arith
-            rust/pg_float_to_int
-            rust/pg_float_unary
-            rust/pg_int4_arith
-            rust/pg_int4_bitwise
-            rust/pg_int4_cmp
-            rust/pg_int4_div
-            rust/pg_int4_hash
-            rust/pg_int4_unary
-            rust/pg_int_casts
-            rust/pg_interval
-            rust/pg_macaddr
-            rust/pg_text
-            rust/pg_tid
-            rust/pg_uuid
-      - run: tools/regen/check-all-behavioral.sh
+          bazelisk-cache: true
+          disk-cache: gate2-${{ github.workflow }}-${{ matrix.os }}
+          repository-cache: true
+      - run: bazel test --jobs=4 //tools/regen:gate2_all --test_output=errors

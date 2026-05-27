@@ -109,6 +109,11 @@ crate.spec(
     package = "bumpalo",
     version = "3",
 )
+# libc: pg_macaddr / pg_tid / pg_uuid src/lib.rs call libc::memcmp etc.
+crate.spec(
+    package = "libc",
+    version = "0.2",
+)
 crate.from_specs(name = "crates")
 use_repo(crate, "crates")
 

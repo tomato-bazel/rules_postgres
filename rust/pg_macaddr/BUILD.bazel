@@ -20,7 +20,8 @@ rust_library(
     name = "pg_macaddr",
     srcs = ["src/lib.rs"],
     edition = "2021",
-    deps = ["//rust/pg_fcinfo"],
+    deps = ["//rust/pg_fcinfo",
+        "@crates//:libc",],
 )
 
 rust_test(

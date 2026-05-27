@@ -14,3 +14,4 @@ tools/regen/.tmp/
 
 # Pg.Ir corpus extract artifacts (regenerable from sources)
 tools/corpus_extract/*.jsonl.bak
+lean/**/*.olean
