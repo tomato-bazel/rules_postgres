@@ -19,8 +19,11 @@ package as the rule. The lean/ tree is where they live.
 """
 
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("@rules_cc//cc:defs.bzl", "cc_library")
 load("@rules_lang//c:rules.bzl", "c_ast_dump_single", "c_ast_struct_diff_test_suite")
 load("@rules_lean//lean:lean.bzl", "lean_emit")
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+load(":clusters.bzl", "cluster_for_package")
 
 # Standard Pg.Ir prelude — the modules every Lean emit imports
 # transitively before its cluster-specific files. Matches the
@@ -149,3 +152,160 @@ def gate3_cluster(name, pg_source, lean_emit_c, fn_names):
         right = ":" + name + "_lean_ast",
         fn_names = fn_names,
     )
+
+# ─── pg_ir_cluster — single per-crate BUILD entry point ───────────
+#
+# Auto-detects which cluster the calling BUILD.bazel belongs to via
+# `native.package_name()`, looks up its config in CLUSTERS, and
+# generates all the Gate 2 (cc_library + rust_library + rust_test) +
+# Gate 3 (clang AST struct diff suite) targets the crate needs.
+#
+# Per-crate BUILD.bazel collapses to:
+#
+#   load("//tools/regen:cluster.bzl", "pg_ir_cluster")
+#   pg_ir_cluster()
+#
+# All cluster-specific variation (c_oracle filename base, palloc/libc
+# deps, has-a-C-emit, function lists for Gate 3) flows from the entry
+# in tools/regen/clusters.bzl.
+
+def pg_ir_cluster():
+    """Wire Gate 2 + Gate 3 for the cluster owning the current package."""
+    spec = cluster_for_package(native.package_name())
+    crate = spec.crate
+    base = spec.c_base
+
+    # ── c_oracle cc_library: renamed PG body + setjmp wrappers. ──
+    cc_deps = ["//rust/pg_fcinfo:ereport_hdr"]
+    if spec.uses_palloc:
+        cc_deps.append("//rust/pg_palloc:palloc_hdr")
+
+    cc_library(
+        name = "c_oracle",
+        srcs = [
+            "c_oracle/renamed_{}.c".format(base),
+            "c_oracle/wrappers.c",
+        ],
+        textual_hdrs = ["c_oracle/{}.c".format(base)],
+        deps = cc_deps,
+    )
+
+    # ── rust_library: Lean-emitted Rust impl. ──
+    rust_deps = ["//rust/pg_fcinfo"]
+    if spec.uses_palloc:
+        rust_deps.append("//rust/pg_palloc")
+    if spec.uses_libc:
+        rust_deps.append("@crates//:libc")
+
+    rust_library(
+        name = crate,
+        srcs = ["src/lib.rs"],
+        edition = "2021",
+        deps = rust_deps,
+    )
+
+    # ── rust_test: behavioral diff harness. ──
+    if spec.diff_test:
+        test_deps = [
+            ":c_oracle",
+            ":" + crate,
+            "//rust/pg_fcinfo",
+            "@crates//:proptest",
+        ]
+        if spec.diff_test_uses_palloc:
+            test_deps.append("//rust/pg_palloc")
+
+        rust_test(
+            name = spec.diff_test,
+            srcs = ["tests/{}.rs".format(spec.diff_test)],
+            edition = "2021",
+            deps = test_deps,
+        )
+
+    # ── Filegroups for Gate 1 diff_test consumption. ──
+    native.filegroup(
+        name = "lib_rs",
+        srcs = ["src/lib.rs"],
+    )
+    if spec.lean_emit_c:
+        native.filegroup(
+            name = "{}_emit_c".format(base),
+            srcs = ["c_oracle/{}_emit.c".format(base)],
+        )
+
+    # ── Gate 3 wiring when the cluster has a C emit + a PG source. ──
+    if spec.lean_emit_c and spec.pg_source and spec.gate3_fn_names:
+        gate3_cluster(
+            name = base,
+            pg_source = spec.pg_source,
+            lean_emit_c = ":{}_emit_c".format(base),
+            fn_names = spec.gate3_fn_names,
+        )
+
+# ─── Iteration helpers consumed by lean/BUILD.bazel + tools/regen ──
+
+def wire_all_gate1(clusters):
+    """Generate gate1_cluster() per cluster from a centralized list.
+
+    Must be called from `lean/BUILD.bazel` (lean_emit's srcs need to
+    live in or under the calling package). Reads the prelude variant
+    + cluster_common toggle + emit-c flags from each spec.
+    """
+    for spec in clusters:
+        srcs = list(PG_IR_OLD_BASE if spec.lean_prelude == "old" else PG_IR_PRELUDE)
+        if spec.gate1_extra_lean_srcs:
+            srcs = srcs + list(spec.gate1_extra_lean_srcs)
+        if not spec.lean_no_cluster_common:
+            srcs.append("Pg/Ir/Emit/{}Common.lean".format(spec.lean_module))
+        srcs.append("Pg/Ir/Emit/{}.lean".format(spec.lean_module))
+
+        # Cluster name for gate1 targets — match the per-crate base
+        # (so gate1_int_div pairs with diff_int_div, gate1_int_arith
+        # with diff_int4_arith from pg_int4_arith, etc.).
+        gate_name = spec.c_base
+
+        rust_target = "//rust/{}:lib_rs".format(spec.crate)
+
+        if spec.lean_emit_c:
+            gate1_cluster(
+                name = gate_name,
+                rust_entry = "Pg/Ir/Emit/{}.lean".format(spec.lean_module),
+                rust_target = rust_target,
+                srcs = srcs,
+                c_entry = "Pg/Ir/Emit/{}C.lean".format(spec.lean_module),
+                c_target = "//rust/{}:{}_emit_c".format(spec.crate, spec.c_base),
+                c_extra_srcs = ["Pg/Ir/Emit/{}C.lean".format(spec.lean_module)],
+            )
+        else:
+            gate1_cluster(
+                name = gate_name,
+                rust_entry = "Pg/Ir/Emit/{}.lean".format(spec.lean_module),
+                rust_target = rust_target,
+                srcs = srcs,
+            )
+
+def gate1_test_labels(clusters):
+    """Return the list of `//lean:gate1_<name>{,_c}` labels for `:gate1_all`."""
+    labels = []
+    for spec in clusters:
+        labels.append("//lean:gate1_{}".format(spec.c_base))
+        if spec.lean_emit_c:
+            labels.append("//lean:gate1_{}_c".format(spec.c_base))
+    return sorted(labels)
+
+def gate2_test_labels(clusters):
+    """Return the list of `//rust/<crate>:<diff_test>` labels for `:gate2_all`,
+    plus the pg_fcinfo round_trip test (always part of Gate 2)."""
+    labels = ["//rust/pg_fcinfo:round_trip"]
+    for spec in clusters:
+        if spec.diff_test:
+            labels.append("//rust/{}:{}".format(spec.crate, spec.diff_test))
+    return sorted(labels)
+
+def gate3_test_labels(clusters):
+    """Return the list of `//rust/<crate>:gate3_<base>` labels for `:gate3_all`."""
+    labels = []
+    for spec in clusters:
+        if spec.lean_emit_c and spec.pg_source and spec.gate3_fn_names:
+            labels.append("//rust/{}:gate3_{}".format(spec.crate, spec.c_base))
+    return sorted(labels)

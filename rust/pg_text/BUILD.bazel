@@ -1,44 +1,5 @@
-load("@rules_cc//cc:defs.bzl", "cc_library")
-load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+load("//tools/regen:cluster.bzl", "pg_ir_cluster")
 
 package(default_visibility = ["//visibility:public"])
 
-# c_oracle: vendored real-Postgres bodies (renamed via preprocessor)
-# + setjmp wrapper. The base `text.c` source is included by
-# `renamed_text.c` via #include, so it's a textual header.
-cc_library(
-    name = "c_oracle",
-    srcs = [
-        "c_oracle/renamed_text.c",
-        "c_oracle/wrappers.c",
-    ],
-    textual_hdrs = ["c_oracle/text.c"],
-    deps = ["//rust/pg_fcinfo:ereport_hdr",
-        "//rust/pg_palloc:palloc_hdr",],
-)
-
-rust_library(
-    name = "pg_text",
-    srcs = ["src/lib.rs"],
-    edition = "2021",
-    deps = ["//rust/pg_fcinfo",
-        "//rust/pg_palloc",],
-)
-
-rust_test(
-    name = "diff_text",
-    srcs = ["tests/diff_text.rs"],
-    edition = "2021",
-    deps = [
-        ":c_oracle",
-        ":pg_text",
-        "//rust/pg_fcinfo",
-        "@crates//:proptest",
-        "//rust/pg_palloc",
-    ],
-)
-
-filegroup(
-    name = "lib_rs",
-    srcs = ["src/lib.rs"],
-)
+pg_ir_cluster()

@@ -1,48 +1,5 @@
-load("@rules_cc//cc:defs.bzl", "cc_library")
-load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+load("//tools/regen:cluster.bzl", "pg_ir_cluster")
 
 package(default_visibility = ["//visibility:public"])
 
-# c_oracle: vendored real-Postgres int.c + int8.c bodies (renamed via
-# preprocessor in renamed_int4_arith.c) plus the setjmp wrapper layer.
-# The `int4_arith.c` source is included by renamed_int4_arith.c via
-# #include, so it's a textual header, not a separately-compiled src.
-cc_library(
-    name = "c_oracle",
-    srcs = [
-        "c_oracle/renamed_int4_arith.c",
-        "c_oracle/wrappers.c",
-    ],
-    textual_hdrs = ["c_oracle/int4_arith.c"],
-    deps = ["//rust/pg_fcinfo:ereport_hdr"],
-)
-
-# Lean-emitted Rust impl (regen'd via tools/regen/regen-int-arith.sh,
-# checked against Lean source by //tools/regen:gate1_int_arith).
-rust_library(
-    name = "pg_int4_arith",
-    srcs = ["src/lib.rs"],
-    edition = "2021",
-    deps = ["//rust/pg_fcinfo"],
-)
-
-# Gate 2 — behavioral diff: proptest-driven comparison of every fmgr
-# fn in this cluster against its vendored C-oracle counterpart, via
-# pg_fcinfo's V1 ABI shim.
-rust_test(
-    name = "diff_int4_arith",
-    srcs = ["tests/diff_int4_arith.rs"],
-    edition = "2021",
-    deps = [
-        ":c_oracle",
-        ":pg_int4_arith",
-        "//rust/pg_fcinfo",
-        "@crates//:proptest",
-    ],
-)
-
-# Filegroup for Gate 1's diff_test (committed src/lib.rs label).
-filegroup(
-    name = "lib_rs",
-    srcs = ["src/lib.rs"],
-)
+pg_ir_cluster()

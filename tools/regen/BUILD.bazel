@@ -1,88 +1,45 @@
+load(
+    "//tools/regen:cluster.bzl",
+    "gate1_test_labels",
+    "gate2_test_labels",
+    "gate3_test_labels",
+)
+load("//tools/regen:clusters.bzl", "CLUSTERS")
+
 package(default_visibility = ["//visibility:public"])
 
 exports_files(glob(["regen-*.sh"]))
 
 # ─── Gate 1 — regen idempotence ────────────────────────────────────
 #
-# Bazel-native via `lean_emit` + skylib `diff_test` per cluster. The
-# per-cluster targets live in `//lean:gate1_<name>{,_c}` because that's
-# where the Lean source srcs are reachable; this test_suite aggregates
-# all 22 of them (19 Rust emits + 3 C emits for clusters that have one).
+# Bazel-native via `lean_emit` + skylib `diff_test` per cluster, wired
+# in //lean:BUILD.bazel via `wire_all_gate1(CLUSTERS)`. This test_suite
+# aggregates all 22 of them (19 Rust emits + 3 C emits for clusters
+# that have one) by iterating the same CLUSTERS list.
 test_suite(
     name = "gate1_all",
-    tests = [
-        "//lean:gate1_bytea",
-        "//lean:gate1_cash_arith",
-        "//lean:gate1_date_arith",
-        "//lean:gate1_float_arith",
-        "//lean:gate1_float_to_int",
-        "//lean:gate1_float_unary",
-        "//lean:gate1_int_arith",
-        "//lean:gate1_int_bitwise",
-        "//lean:gate1_int_casts",
-        "//lean:gate1_int_cmp",
-        "//lean:gate1_int_div",
-        "//lean:gate1_int_hash",
-        "//lean:gate1_int_unary",
-        "//lean:gate1_interval",
-        "//lean:gate1_macaddr",
-        "//lean:gate1_macaddr_c",
-        "//lean:gate1_text",
-        "//lean:gate1_tid",
-        "//lean:gate1_tid_c",
-        "//lean:gate1_timestamp_arith",
-        "//lean:gate1_uuid",
-        "//lean:gate1_uuid_c",
-    ],
+    tests = gate1_test_labels(CLUSTERS),
 )
 
 # ─── Gate 2 — cluster behavioral diff-test ─────────────────────────
 #
-# Bazel-native via rules_rust + cc_library per cluster. Each
-# `rust/pg_<cluster>/` ships:
-#   - cc_library(c_oracle)  — renamed PG C body + setjmp wrappers
-#   - rust_library(pg_<cluster>) — Lean-emitted Rust impl
-#   - rust_test(diff_<cluster>) — proptest-driven Rust↔C diff harness
-# Tests link against //rust/pg_fcinfo + (where needed) //rust/pg_palloc.
+# Bazel-native via rules_rust + cc_library per cluster, wired by the
+# `pg_ir_cluster()` macro from each //rust/pg_<crate>/BUILD.bazel.
+# This test_suite picks up every cluster with a `tests/diff_*.rs`
+# harness plus pg_fcinfo's round_trip test.
 test_suite(
     name = "gate2_all",
-    tests = [
-        "//rust/pg_bytea:diff_bytea",
-        "//rust/pg_cash_arith:diff_cash_arith",
-        "//rust/pg_date_arith:diff_date_arith",
-        "//rust/pg_fcinfo:round_trip",
-        "//rust/pg_float_arith:diff_float_arith",
-        "//rust/pg_float_to_int:diff_float_to_int",
-        "//rust/pg_float_unary:diff_float_unary",
-        "//rust/pg_int4_arith:diff_int4_arith",
-        "//rust/pg_int4_bitwise:diff_int4_bitwise",
-        "//rust/pg_int4_cmp:diff_int4_cmp",
-        "//rust/pg_int4_div:diff_int_div",
-        "//rust/pg_int4_hash:diff_int4_hash",
-        "//rust/pg_int4_unary:diff_int4_unary",
-        "//rust/pg_int_casts:diff_int_casts",
-        "//rust/pg_interval:diff_interval",
-        "//rust/pg_macaddr:diff_macaddr",
-        "//rust/pg_text:diff_text",
-        "//rust/pg_tid:diff_tid",
-        "//rust/pg_uuid:diff_uuid",
-    ],
+    tests = gate2_test_labels(CLUSTERS),
 )
 
 # ─── Gate 3 — clang AST structural diff vs real Postgres ──────────
 #
-# Bazel-native via rules_lang's `c_ast_dump_single` + `c_ast_struct_diff_test`.
-# Each per-cluster `gate3_<cluster>` test_suite (defined in
-# //rust/pg_<cluster>/BUILD.bazel) dumps the Lean-emit C and the real
-# PG source via clang -ast-dump=json, then per-function structurally
-# diffs them via the c_ast_struct_diff rust_binary in rules_lang.
+# Bazel-native via rules_lang's `c_ast_dump_single` + `c_ast_struct_diff_test`,
+# wired by the `pg_ir_cluster()` macro for clusters with `lean_emit_c =
+# True` and a `pg_source` label. Only macaddr/tid/uuid qualify today.
 test_suite(
     name = "gate3_all",
-    tests = [
-        "//rust/pg_macaddr:gate3_macaddr",
-        "//rust/pg_tid:gate3_tid",
-        "//rust/pg_uuid:gate3_uuid",
-    ],
+    tests = gate3_test_labels(CLUSTERS),
 )
 
 # Convenience: run all three gates as a single test_suite handle.
