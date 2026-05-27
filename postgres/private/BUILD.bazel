@@ -2,6 +2,12 @@ load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 
 package(default_visibility = ["//postgres:__pkg__"])
 
+# Note: the `meson_runner` py_binary that used to live here moved to
+# rules_meson (`@rules_meson//meson/private:meson_runner`) along with
+# the meson + ninja vendoring extension. rules_postgres now consumes
+# it via `pg_meson_configure` in postgres/meson.bzl, which is a thin
+# wrapper around `@rules_meson//meson:meson_configure.bzl%meson_configure`.
+
 bzl_library(
     name = "known_versions_bzl",
     srcs = ["known_versions.bzl"],

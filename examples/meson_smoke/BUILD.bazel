@@ -1,0 +1,18 @@
+load("@rules_postgres//postgres:meson.bzl", "pg_meson_configure")
+
+# Run hermetic `meson setup` against Postgres 17 source and capture
+# compile_commands.json. Output is consumable by any downstream tool
+# that ingests compile_commands.json (clang-tidy, clangd, rules_lang's
+# c_ast_dump_from_compdb, etc.). This is what `rules_postgres`
+# contributes; the ingestion step is a separate concern (intentionally
+# living in the consuming repo).
+#
+# bazel build //examples/meson_smoke:pg17_compdb
+#   → bazel-bin/examples/meson_smoke/pg17_compdb.compile_commands.json
+#     (~1500 TU entries for PG 17.6 with default-disabled options)
+pg_meson_configure(
+    name = "pg17_compdb",
+    srcs = ["@postgres_src//:all_source"],
+    marker = "@postgres_src//:meson.build",
+    visibility = ["//visibility:public"],
+)

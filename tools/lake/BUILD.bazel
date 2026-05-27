@@ -1,0 +1,21 @@
+# Lake workspace inputs consumed by `@rules_lean//lean:lake.bzl`'s
+# `lake_workspace` module extension (wired up in //:MODULE.bazel).
+#
+# Mirrors Aion's `tools/lake/` shape (proposal → review → response →
+# phase1-plan → phase1-ack docs in ~/Documents/rfcs/narrative/),
+# minus the mathlib + cslib requires (Phase 1 modules don't need them).
+# Add require directives if/when later phases pull in modules that do.
+#
+# Pin the same Lean toolchain version Aion uses, so source moved from
+# Aion type-checks here without a compiler-version diff.
+#
+# The .lake/ build directory is gitignored; lake_workspace materializes
+# its own copy inside the external repo.
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "lakefile.lean",
+    "lake-manifest.json",
+    "lean-toolchain",
+])
