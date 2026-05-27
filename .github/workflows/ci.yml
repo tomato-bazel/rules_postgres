@@ -65,10 +65,6 @@ jobs:
   gate2_behavioral_diff:
     name: gate 2 — behavioral diff
     runs-on: ${{ matrix.os }}
-    # KNOWN-FAILING: pg_tid currently diverges (hash/cmp/clamp). Keep
-    # the gate visible in CI but non-blocking until pg_tid is triaged.
-    # Drop continue-on-error once pg_tid's diff_tid passes.
-    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
