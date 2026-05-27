@@ -57,7 +57,7 @@ register_toolchains("@rules_postgres_lake//:lean_toolchain_def")
 # plus the `c_ast_struct_diff_test` rule that backs Gate 3 (clang AST
 # structural diff vs real Postgres source). Resolved via the premium
 # private registry (see .bazelrc).
-bazel_dep(name = "rules_lang", version = "0.0.2")
+bazel_dep(name = "rules_lang", version = "0.0.3")
 
 # rules_lora — Bazel-native LoRA fine-tuning. Used by Pg.Ir's
 # local-model fine-tune track: the Stream A LLM-authoring loop's
