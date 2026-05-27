@@ -1,4 +1,4 @@
-load("@rules_lean//lean:lean.bzl", "lean_regen_test", "lean_test")
+load("@rules_lean//lean:lean.bzl", "lean_main_test", "lean_test")
 load("//tools/regen:clusters.bzl", "CLUSTERS")
 load("//tools/regen:gate1.bzl", "wire_all_gate1")
 
@@ -37,7 +37,12 @@ wire_all_gate1(CLUSTERS)
 # shape PG's vendored `.dat` files use — quoted strings with `\\` and
 # `\'` escapes, bare-identifier values, brace-containing strings
 # (pg_aggregate's `'{0,0}'`), multi-line records, the lot.
-lean_regen_test(
+#
+# `DatRoundTrip.lean`'s `main : IO UInt32` self-validates: prints
+# `ok: <file> ...` per file and returns 0 only when all 24 round-trip
+# stable. `lean_main_test` (rules_lean 0.3.5) passes the test iff that
+# exit code is 0 — no committed expected.txt fixture needed.
+lean_main_test(
     name = "gate_catalog_dat_round_trip",
     srcs = [
         "Pg/Catalog/Dat.lean",
@@ -75,8 +80,12 @@ lean_regen_test(
         "@postgres_src//:src/include/catalog/pg_type.dat",
     ],
     entry = "Pg/Catalog/DatRoundTrip.lean",
-    expected = "Pg/Catalog/dat/_round_trip_expected.txt",
-    out = "catalog_dat_round_trip.out",
+    # Lean compile + run of all 24 .dat files (6,777 rows; pg_proc
+    # alone is 3,314) exceeds the default 300s test timeout. Under
+    # `lean_regen_test` the slow lean_emit ran as a build action
+    # (no timeout) and only the diff_test was a test; lean_main_test
+    # runs the whole thing in-test, so we need the larger budget.
+    timeout = "long",
 )
 
 # Receiving scaffolding for the PgAst extraction (Phase 1).
