@@ -1,5 +1,16 @@
 load("@rules_lean//lean:lean.bzl", "lean_test")
 
+# Expose all Pg.* Lean source files publicly so cross-repo
+# consumers (e.g. Aion's lean_test targets) can list them in
+# their own `srcs` for shim-style migrations. rules_lean's
+# lean_test rule doesn't expose a LeanInfo provider for
+# downstream `deps` consumption, so cross-repo Lean source
+# sharing happens at the source-file level via `srcs`.
+exports_files(
+    glob(["Pg/**/*.lean"]),
+    visibility = ["//visibility:public"],
+)
+
 # Receiving scaffolding for the PgAst extraction (Phase 1).
 #
 # Currently: empty stub Lean modules at `Pg/*` + `Pg/Catalog/*`.
