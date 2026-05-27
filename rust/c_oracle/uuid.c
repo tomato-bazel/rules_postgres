@@ -53,9 +53,73 @@ typedef struct FunctionCallInfoBaseData
 #define PG_RETURN_BOOL(x) return (Datum)((x) ? 1 : 0)
 #define PG_RETURN_INT32(x) return (Datum) (uint32_t) (x)
 
-/* Hash function stubs (matching Postgres signature). */
-extern Datum hash_any(const unsigned char *k, int keylen);
-extern Datum hash_any_extended(const unsigned char *k, int keylen, uint64 seed);
+/* ─── PG hashfn.h Jenkins/lookup3 implementation ──────────────────
+ * Inlined into uuid.c (was previously in the hand-written
+ * wrappers_uuid.c, which the oracle shim codegen replaced; the
+ * generated shim is pure FFI so it can't carry the helpers).
+ * Generic PG helper — used by uuid_hash and uuid_hash_extended below.
+ */
+#define rot(x, k) (((x) << (k)) | ((x) >> (32 - (k))))
+#define mix(a, b, c) { \
+    a -= c; a ^= rot(c, 4); c += b; \
+    b -= a; b ^= rot(a, 6); a += c; \
+    c -= b; c ^= rot(b, 8); b += a; \
+    a -= c; a ^= rot(c, 16); c += b; \
+    b -= a; b ^= rot(a, 19); a += c; \
+    c -= b; c ^= rot(b, 4); b += a; }
+#define final(a, b, c) { \
+    c ^= b; c -= rot(b, 14); \
+    a ^= c; a -= rot(c, 11); \
+    b ^= a; b -= rot(a, 25); \
+    c ^= b; c -= rot(b, 16); \
+    a ^= c; a -= rot(c, 4); \
+    b ^= a; b -= rot(a, 14); \
+    c ^= b; c -= rot(b, 24); }
+
+static inline uint32_t
+read_le32(const unsigned char *k)
+{
+    return k[0] | (k[1] << 8) | (k[2] << 16) | (k[3] << 24);
+}
+
+static Datum
+hash_any(const unsigned char *k, int keylen)
+{
+    uint32_t a = 0x9e3779b9 + keylen + 3923095;
+    uint32_t b = a;
+    uint32_t c = a;
+
+    a += read_le32(k + 0);
+    b += read_le32(k + 4);
+    c += read_le32(k + 8);
+    mix(a, b, c);
+    a += read_le32(k + 12);
+    final(a, b, c);
+
+    return (Datum) c;
+}
+
+static Datum
+hash_any_extended(const unsigned char *k, int keylen, uint64 seed)
+{
+    uint32_t a = 0x9e3779b9 + keylen + 3923095;
+    uint32_t b = a;
+    uint32_t c = a;
+
+    if (seed != 0) {
+        a += (uint32_t)(seed >> 32);
+        b += (uint32_t)seed;
+        mix(a, b, c);
+    }
+    a += read_le32(k + 0);
+    b += read_le32(k + 4);
+    c += read_le32(k + 8);
+    mix(a, b, c);
+    a += read_le32(k + 12);
+    final(a, b, c);
+
+    return (Datum) (((uint64) b << 32) | (uint64) c);
+}
 
 /* Forward declaration of the static helper. */
 static int uuid_internal_cmp(const pg_uuid_t *arg1, const pg_uuid_t *arg2);

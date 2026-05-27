@@ -26,9 +26,109 @@ Lean → Rust/C emits (the build-time source of truth) live in
 cross-repo consumers without pulling in rules_rust.
 """
 
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("@rules_cc//cc:defs.bzl", "cc_library")
 load("@rules_lang//c:rules.bzl", "c_ast_dump_single", "c_ast_struct_diff_test_suite")
 load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+# ─── Oracle shim codegen ──────────────────────────────────────────
+#
+# Generates the per-cluster `oracle_shim_<base>.c` file that combines
+# what used to be the hand-written `renamed_<base>.c` (`#define <fn>
+# <fn>_orig` preprocessor renames + `#include "<base>.c"`) and the
+# hand-written `wrappers_<base>.c` (FFI `c_<fn>` re-exports calling
+# the renamed body) into a single auto-generated translation unit.
+#
+# Drives off three new cluster-spec fields:
+#   oracle_fn_names      — public fmgr fns the wrapper re-exports
+#                          and that the vendored body publishes.
+#   oracle_extra_renames — internal static helpers (e.g.,
+#                          `uuid_internal_cmp`) that the body calls
+#                          via the renamed names; renamed for
+#                          consistency, NOT wrapped.
+#   oracle_uses_ereport  — True if any wrapped fn calls ereport(),
+#                          so the wrapper must setjmp() to catch the
+#                          longjmp from the c_oracle_ereport.h shim.
+#
+# Per-cluster spec sets these; one write_file generates the .c. The
+# vendored `<base>.c` stays hand-written (function bodies are
+# byte-identical to real PG and aren't generatable).
+
+_SHIM_PREAMBLE_BASE = [
+    "/* AUTO-GENERATED — see oracle_fn_names in tools/regen/clusters.bzl. */",
+    "/* Combines the old renamed_<base>.c + wrappers_<base>.c into one TU. */",
+    "",
+    "#include <stdint.h>",
+    "#include <stdbool.h>",
+]
+
+_SHIM_PREAMBLE_TYPES = [
+    "",
+    "typedef uintptr_t Datum;",
+    "typedef struct FunctionCallInfoBaseData FunctionCallInfoBaseData;",
+]
+
+_SHIM_EREPORT_TLS = [
+    "",
+    "/* TLS state used by c_oracle_ereport.h's ereport()/errcode() macros. */",
+    "__thread jmp_buf fmgr_oracle_jmp;",
+    "__thread uint32_t fmgr_oracle_last_errcode;",
+]
+
+# NB: no `extern Datum name##_orig(...)` decl in WRAP. The body
+# `<base>.c` is `#include`-d earlier in the same TU, so the _orig
+# names are already declared at this point. Adding an extern with a
+# fixed signature would conflict with bodies that use a different
+# parameter convention (e.g., `void *fcinfo_ptr`).
+_WRAP_MACRO_PURE = [
+    "",
+    "#define WRAP(name) \\",
+    "    Datum c_##name(FunctionCallInfoBaseData *fcinfo) { return name##_orig(fcinfo); }",
+]
+
+_WRAP_MACRO_EREPORT = [
+    "",
+    "#define WRAP(name) \\",
+    "    Datum c_##name(FunctionCallInfoBaseData *fcinfo) { \\",
+    "        if (setjmp(fmgr_oracle_jmp) != 0) return (Datum) 0; \\",
+    "        return name##_orig(fcinfo); \\",
+    "    }",
+]
+
+def _gen_oracle_shim(base, fn_names, extra_renames, uses_ereport):
+    """Emit oracle_shim_<base>.c via write_file. Returns the target label."""
+    rename_all = fn_names + extra_renames
+    lines = list(_SHIM_PREAMBLE_BASE)
+    if uses_ereport:
+        lines.append("#include <setjmp.h>")
+    lines += list(_SHIM_PREAMBLE_TYPES)
+    if uses_ereport:
+        lines += list(_SHIM_EREPORT_TLS)
+
+    # Rename preprocessor defines + #include of the vendored body.
+    lines += [""]
+    lines += ["#define {fn} {fn}_orig".format(fn = fn) for fn in rename_all]
+    lines += [
+        "",
+        "#include \"{}.c\"".format(base),
+        "",
+    ]
+    lines += ["#undef {fn}".format(fn = fn) for fn in rename_all]
+
+    # Wrappers: re-export the _orig symbols under c_<name>.
+    lines += list(_WRAP_MACRO_EREPORT if uses_ereport else _WRAP_MACRO_PURE)
+    lines.append("")
+    lines += ["WRAP({})".format(fn) for fn in fn_names]
+    lines += ["", "#undef WRAP", ""]
+
+    target_name = base + "_shim_c"
+    write_file(
+        name = target_name,
+        out = "c_oracle/{}_shim.c".format(base),
+        content = lines,
+        newline = "unix",
+    )
+    return ":" + target_name
 
 def gate3_cluster(name, pg_source, lean_emit_c, fn_names):
     """Wire Gate 3 (clang AST structural diff) for one Pg.Ir cluster.
@@ -126,13 +226,36 @@ def _wire_cluster(spec):
     if spec.uses_palloc:
         cc_deps.append("//rust/pg_palloc:palloc_hdr")
 
-    cc_library(
-        name = crate + "_c_oracle",
-        srcs = [
+    # Per-cluster oracle shim. If the cluster spec defines
+    # `oracle_fn_names`, we generate the renamed+wrappers shim from
+    # those at build time (via write_file). Otherwise fall back to
+    # the legacy pair of hand-written `renamed_<base>.c` +
+    # `wrappers_<base>.c` files in `rust/c_oracle/`.
+    fn_names = getattr(spec, "oracle_fn_names", [])
+    if fn_names:
+        shim = _gen_oracle_shim(
+            base = base,
+            fn_names = fn_names,
+            extra_renames = getattr(spec, "oracle_extra_renames", []),
+            uses_ereport = getattr(spec, "oracle_uses_ereport", False),
+        )
+        cc_srcs = [shim]
+    else:
+        cc_srcs = [
             "c_oracle/renamed_{}.c".format(base),
             "c_oracle/wrappers_{}.c".format(base),
-        ],
+        ]
+
+    cc_library(
+        name = crate + "_c_oracle",
+        srcs = cc_srcs,
         textual_hdrs = ["c_oracle/{}.c".format(base)],
+        # `c_oracle/` on the include path so the generated shim can
+        # `#include "<base>.c"` and find the vendored body. The legacy
+        # (non-generated) renamed_<base>.c worked without this because
+        # it sat in the same dir as <base>.c; the generated shim lives
+        # in bazel-out.
+        includes = ["c_oracle"],
         deps = cc_deps,
     )
 
