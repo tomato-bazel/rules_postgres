@@ -66,7 +66,10 @@ def wire_all_gate1(clusters):
     """
     for spec in clusters:
         srcs = _cluster_srcs(spec)
-        rust_target = "//rust/{}:lib_rs".format(spec.crate)
+        # All cluster-side filegroups now live at //rust:<crate>_lib_rs
+        # and //rust:<base>_emit_c (the per-crate BUILD.bazel files were
+        # collapsed into //rust/BUILD.bazel via pg_ir_clusters()).
+        rust_target = "//rust:{}_lib_rs".format(spec.crate)
 
         # Rust emit gate. Output filename ends in `.rs` so anyone
         # eyeballing bazel-bin/ sees the format.
@@ -81,7 +84,7 @@ def wire_all_gate1(clusters):
         if spec.lean_emit_c:
             c_main = "Pg/Ir/Emit/{}C.lean".format(spec.lean_module)
             c_srcs = list(srcs) + [c_main]
-            c_target = "//rust/{}:{}_emit_c".format(spec.crate, spec.c_base)
+            c_target = "//rust:{}_emit_c".format(spec.c_base)
 
             lean_regen_test(
                 name = "gate1_{}_c".format(spec.c_base),

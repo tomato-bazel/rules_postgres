@@ -1,0 +1,25 @@
+load("//tools/regen:cluster.bzl", "pg_ir_clusters")
+load("//tools/regen:clusters.bzl", "CLUSTERS")
+
+package(default_visibility = ["//visibility:public"])
+
+# Single source of truth for every Pg.Ir cluster crate's Bazel targets.
+# Replaces 19 per-crate `rust/pg_<crate>/BUILD.bazel` files (each just
+# a `pg_ir_cluster()` no-op call) with one centralized iteration over
+# `CLUSTERS`. The cluster source files (`c_oracle/*.c`, `src/lib.rs`,
+# `tests/diff_*.rs`) live in their respective subdirectories under
+# rust/ as plain files — no per-crate BUILD.bazel needed.
+#
+# Target naming (all under `//rust:`):
+#   <crate>                          rust_library  (e.g. pg_int4_arith)
+#   <crate>_c_oracle                 cc_library wrapping c_oracle/*.c
+#   <diff_test>                      rust_test     (e.g. diff_int4_arith)
+#   <crate>_lib_rs                   filegroup over src/lib.rs (Gate 1)
+#   <base>_emit_c                    filegroup over <base>_emit.c (Gate 3)
+#   gate3_<base> / gate3_<base>_<fn> c_ast_struct_diff_test_suite + tests
+#
+# `pg_fcinfo` and `pg_palloc` are foundation crates (not cluster-shaped)
+# — they keep their own `rust/pg_fcinfo/BUILD.bazel` /
+# `rust/pg_palloc/BUILD.bazel` packages.
+
+pg_ir_clusters(CLUSTERS)

@@ -29,7 +29,6 @@ in rules_rust.
 load("@rules_cc//cc:defs.bzl", "cc_library")
 load("@rules_lang//c:rules.bzl", "c_ast_dump_single", "c_ast_struct_diff_test_suite")
 load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
-load(":clusters.bzl", "cluster_for_package")
 
 def gate3_cluster(name, pg_source, lean_emit_c, fn_names):
     """Wire Gate 3 (clang AST structural diff) for one Pg.Ir cluster.
@@ -87,28 +86,52 @@ def gate3_cluster(name, pg_source, lean_emit_c, fn_names):
 # deps, has-a-C-emit, function lists for Gate 3) flows from the entry
 # in `tools/regen/clusters.bzl`.
 
-def pg_ir_cluster():
-    """Wire Gate 2 + Gate 3 for the cluster owning the current package."""
-    spec = cluster_for_package(native.package_name())
+def pg_ir_clusters(clusters):
+    """Wire Gate 2 + Gate 3 for ALL Pg.Ir clusters from a centralized list.
+
+    Called once from `rust/BUILD.bazel`. Every per-cluster target is
+    generated under `//rust:...` with the crate name as prefix — no
+    per-crate `rust/pg_<crate>/BUILD.bazel` needed. The cluster source
+    files (`c_oracle/*.c`, `src/lib.rs`, `tests/diff_*.rs`) live in
+    their subdirectories under rust/ as plain files, addressed by
+    relative path from `//rust`.
+
+    Naming scheme (all targets in `//rust`):
+      - <crate>                          = rust_library
+      - <crate>_c_oracle                 = cc_library wrapping c_oracle/*.c
+      - <diff_test>                      = rust_test (name from spec)
+      - <crate>_lib_rs                   = filegroup over src/lib.rs
+      - <base>_emit_c                    = filegroup over c_oracle/<base>_emit.c
+      - gate3_<base>_<fn>                = c_ast_struct_diff_test per fn
+
+    Args:
+      clusters: list of cluster struct entries from CLUSTERS in
+        tools/regen/clusters.bzl.
+    """
+    for spec in clusters:
+        _wire_cluster(spec)
+
+def _wire_cluster(spec):
     crate = spec.crate
     base = spec.c_base
+    sub = crate + "/"  # subdir prefix for file paths
 
-    # ── c_oracle cc_library: renamed PG body + setjmp wrappers. ──
+    # ── c_oracle cc_library. ──
     cc_deps = ["//rust/pg_fcinfo:ereport_hdr"]
     if spec.uses_palloc:
         cc_deps.append("//rust/pg_palloc:palloc_hdr")
 
     cc_library(
-        name = "c_oracle",
+        name = crate + "_c_oracle",
         srcs = [
-            "c_oracle/renamed_{}.c".format(base),
-            "c_oracle/wrappers.c",
+            sub + "c_oracle/renamed_{}.c".format(base),
+            sub + "c_oracle/wrappers.c",
         ],
-        textual_hdrs = ["c_oracle/{}.c".format(base)],
+        textual_hdrs = [sub + "c_oracle/{}.c".format(base)],
         deps = cc_deps,
     )
 
-    # ── rust_library: Lean-emitted Rust impl. ──
+    # ── rust_library. ──
     rust_deps = ["//rust/pg_fcinfo"]
     if spec.uses_palloc:
         rust_deps.append("//rust/pg_palloc")
@@ -117,15 +140,16 @@ def pg_ir_cluster():
 
     rust_library(
         name = crate,
-        srcs = ["src/lib.rs"],
+        crate_name = crate,
+        srcs = [sub + "src/lib.rs"],
         edition = "2021",
         deps = rust_deps,
     )
 
-    # ── rust_test: behavioral diff harness. ──
+    # ── rust_test (Gate 2 behavioral). ──
     if spec.diff_test:
         test_deps = [
-            ":c_oracle",
+            ":" + crate + "_c_oracle",
             ":" + crate,
             "//rust/pg_fcinfo",
             "@crates//:proptest",
@@ -135,23 +159,23 @@ def pg_ir_cluster():
 
         rust_test(
             name = spec.diff_test,
-            srcs = ["tests/{}.rs".format(spec.diff_test)],
+            srcs = [sub + "tests/{}.rs".format(spec.diff_test)],
             edition = "2021",
             deps = test_deps,
         )
 
     # ── Filegroups for Gate 1 diff_test consumption. ──
     native.filegroup(
-        name = "lib_rs",
-        srcs = ["src/lib.rs"],
+        name = crate + "_lib_rs",
+        srcs = [sub + "src/lib.rs"],
     )
     if spec.lean_emit_c:
         native.filegroup(
             name = "{}_emit_c".format(base),
-            srcs = ["c_oracle/{}_emit.c".format(base)],
+            srcs = [sub + "c_oracle/{}_emit.c".format(base)],
         )
 
-    # ── Gate 3 wiring when the cluster has a C emit + a PG source. ──
+    # ── Gate 3 wiring. ──
     if spec.lean_emit_c and spec.pg_source and spec.gate3_fn_names:
         gate3_cluster(
             name = base,
@@ -161,18 +185,18 @@ def pg_ir_cluster():
         )
 
 def gate2_test_labels(clusters):
-    """Return `//rust/<crate>:<diff_test>` labels for `:gate2_all`,
-    plus the pg_fcinfo round_trip test (always part of Gate 2)."""
+    """Return `//rust:<diff_test>` labels for `:gate2_all`, plus pg_fcinfo's
+    round_trip test (the foundation crate stays in its own package)."""
     labels = ["//rust/pg_fcinfo:round_trip"]
     for spec in clusters:
         if spec.diff_test:
-            labels.append("//rust/{}:{}".format(spec.crate, spec.diff_test))
+            labels.append("//rust:{}".format(spec.diff_test))
     return sorted(labels)
 
 def gate3_test_labels(clusters):
-    """Return `//rust/<crate>:gate3_<base>` labels for `:gate3_all`."""
+    """Return `//rust:gate3_<base>` labels for `:gate3_all`."""
     labels = []
     for spec in clusters:
         if spec.lean_emit_c and spec.pg_source and spec.gate3_fn_names:
-            labels.append("//rust/{}:gate3_{}".format(spec.crate, spec.c_base))
+            labels.append("//rust:gate3_{}".format(spec.c_base))
     return sorted(labels)

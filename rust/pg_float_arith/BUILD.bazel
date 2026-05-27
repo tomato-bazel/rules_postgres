@@ -1,5 +1,0 @@
-load("//tools/regen:cluster.bzl", "pg_ir_cluster")
-
-package(default_visibility = ["//visibility:public"])
-
-pg_ir_cluster()
