@@ -1,4 +1,4 @@
-load("@rules_lean//lean:lean.bzl", "lean_test")
+load("@rules_lean//lean:lean.bzl", "lean_regen_test", "lean_test")
 load("//tools/regen:clusters.bzl", "CLUSTERS")
 load("//tools/regen:gate1.bzl", "wire_all_gate1")
 
@@ -22,6 +22,32 @@ exports_files(
 # `//tools/regen:gate1_all`.
 
 wire_all_gate1(CLUSTERS)
+
+# ─── Catalog gen: pg_namespace .dat round-trip ────────────────────
+#
+# Parses lean/Pg/Catalog/dat/pg_namespace.dat via Pg.Catalog.Dat.parseFile,
+# re-emits via emitFile, re-parses, and prints "ok: <N> rows,
+# structurally round-trip stable". diff_test asserts the stdout
+# matches the committed expected. A passing test certifies the Lean
+# grammar captures the upstream `.dat` format (PG itself uses Perl
+# `eval`; we use a hand-rolled line-major brace-counting parser
+# patterned after `tools/catalog_gen/reference/Catalog.pm::ParseData`).
+#
+# Coverage scope: pg_namespace only (MVP). Extending to pg_type /
+# pg_authid / pg_class / pg_proc lands incrementally as the parser
+# grows to handle their additional value forms (array literals,
+# escape sequences, etc.).
+lean_regen_test(
+    name = "gate_catalog_dat_round_trip",
+    srcs = [
+        "Pg/Catalog/Dat.lean",
+        "Pg/Catalog/DatRoundTrip.lean",
+    ],
+    data = ["Pg/Catalog/dat/pg_namespace.dat"],
+    entry = "Pg/Catalog/DatRoundTrip.lean",
+    expected = "Pg/Catalog/dat/pg_namespace_round_trip_expected.txt",
+    out = "pg_namespace_round_trip.out",
+)
 
 # Receiving scaffolding for the PgAst extraction (Phase 1).
 #

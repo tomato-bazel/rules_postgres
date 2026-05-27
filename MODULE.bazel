@@ -31,7 +31,7 @@ bazel_dep(name = "rules_meson", version = "0.0.0")
 # moves on or after 2026-06-01; the scaffolding here lands first as
 # empty stubs + a smoke test so the receiving wiring is proven before
 # any content arrives.
-bazel_dep(name = "rules_lean", version = "0.3.2")
+bazel_dep(name = "rules_lean", version = "0.3.3")
 
 # Minimal Lake workspace pinning the Lean toolchain. Currently no
 # external `require` packages — Phase 1 modules (PgTy + PgAst + PgPretty

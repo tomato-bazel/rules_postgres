@@ -1,56 +1,42 @@
 /-!
 # Pg.Catalog.Dat
 
-Lean-native grammar + (eventual) parser/emitter for Postgres' `.dat`
-system-catalog seed files (e.g. `pg_namespace.dat`, `pg_type.dat`).
+Lean-native parser + emitter for Postgres' `.dat` system-catalog seed
+files (e.g. `pg_namespace.dat`, `pg_type.dat`).
 
-**Status:** type scaffold + path-forward only. The parser/emitter
-implementation is staged work — see the README at
-`tools/catalog_gen/README.md` for the plan and
-`tools/catalog_gen/reference/Catalog.pm` for the upstream grammar
-reference (PG's own `.dat` parser; uses Perl `eval` on the input).
+Grounded by PG's own `Catalog.pm::ParseData` (vendored at
+`tools/catalog_gen/reference/Catalog.pm`). That sub takes ~80 lines
+of Perl using a line-major brace-counting trick — same approach
+implemented here in Lean, without delegating to a `eval`.
 
-## Why grammar-typed in Lean
+## Grammar (from Catalog.pm::ParseData)
 
-The user-facing goal is: replace the 631-LOC Python catalog generator
-with a Lean-native pipeline that participates in the same Bazel-
-native gates as Pg.Ir clusters. Specifically:
+Top-level layout: comments + an `[ ... ]` array of `{...}` hash refs
+spanning one or more lines. The line-major parser:
 
-  - Lean module owns the `.dat` grammar as inductive types.
-  - `lean_emit` runs the round-trip (parse a committed `.dat` →
-    re-emit → byte-identical or canonical-form check).
-  - `lean_regen_test` (from `@rules_lean//lean:lean.bzl`) gates the
-    round-trip output against the committed expected.
-  - `Pg/Catalog/Generated.lean` becomes a `lean_emit` whose entry is
-    a Lean script that reads the parsed `.dat` and emits the
-    catalog snapshot. No external generator, no committed-artifact
-    drift gate — the snapshot just gets rebuilt from `.dat`.
+  1. Read input line-by-line.
+  2. If a line contains `{`, start an accumulator.
+  3. Count `{` and `}` in the accumulator — if balanced, the
+     accumulator holds a complete hash ref. Parse it as a record.
+  4. Otherwise read the next line and append, then retry the count.
+  5. Lines that never contain `{` and aren't inside an accumulator
+     are comment/blank/structural lines.
 
-This file defines the types only. Each parser / emitter / generator
-phase below is staged work; landing them happens against
-`tools/catalog_gen/reference/Catalog.pm` as the spec.
+Each record is `{ key => value, key => value, ... }` with:
+  - keys: bare identifiers (`/[A-Za-z_][A-Za-z0-9_]*/`)
+  - values: single-quoted strings `'...'` or the bare token `_null_`
 
-## PG's grammar (from `Catalog.pm::ParseData`)
+Whitespace + newlines inside a record are flexible. Comments
+between records use `#` line syntax. The MVP doesn't preserve
+inter-token whitespace — emitter produces canonical form.
 
-`.dat` files are Perl source code. PG parses them via `eval`:
+## Status
 
-```perl
-eval "$hash_ref = $_";
-```
-
-So the "grammar" is a subset of Perl literal syntax:
-  - Top-level: `[ ... ]` array of hash references
-  - Hash refs: `{ key => 'value', key => 'value' }`
-  - Keys: bare identifiers (alphanumeric + underscore)
-  - Values: single-quoted strings OR bare token `_null_` (returned
-    as the Perl string `_null_`) OR (in some .dat files) array
-    refs / sprintf-style escape sequences
-  - Whitespace and `#` line comments anywhere
-
-The MVP parser handles only what `pg_namespace.dat` uses (the
-simplest of the bunch — 3 rows, no array values, no escapes).
-Extensions for `pg_proc.dat` etc. land incrementally as each
-`.dat` file is exercised.
+  - [x] Types: `Value`, `Field`, `Row`, `File`
+  - [x] `parseFile : String → Except String File`
+  - [x] `emitFile  : File → String`              (canonical form)
+  - [ ] Byte-identical re-emit (stretch — would need whitespace
+        preservation)
 -/
 
 namespace Pg.Catalog.Dat
@@ -59,14 +45,11 @@ namespace Pg.Catalog.Dat
 inductive Value where
   /-- A single-quoted string. The wrapping quotes are NOT stored. -/
   | str (s : String)
-  /-- The bare `_null_` token (PG semantic: the column is NULL in
-  the bootstrap insert). -/
+  /-- The bare `_null_` token. -/
   | null
   deriving Repr, BEq, Inhabited
 
-/-- One `key => value` field in a row. The MVP doesn't preserve
-inter-token whitespace for byte-identical re-emit; canonical-form
-emission is the v0 goal. -/
+/-- One `key => value` field. -/
 structure Field where
   key   : String
   value : Value
@@ -75,38 +58,163 @@ structure Field where
 /-- One `{ k => v, k => v }` row. -/
 structure Row where
   fields : Array Field
-  /-- Source-line number, if the parser tracked it. Mirrors PG's
-  `Catalog.pm` which annotates each hash with `line_number`. -/
-  lineNumber : Option Nat := none
-  deriving Repr, Inhabited
+  deriving Repr, BEq, Inhabited
 
-/-- A complete `.dat` file. -/
+/-- A complete `.dat` file. The MVP doesn't preserve the file
+preamble (`#`-comments + the `[ ]` envelope) — `emitFile` produces
+those in canonical form. -/
 structure File where
-  /-- The catalog table name, derived from the input file's basename
-  (per PG's `Catalog.pm::ParseData`: `$input_file =~ /(\w+)\.dat$/`). -/
-  catname : String
-  rows    : Array Row
-  deriving Repr, Inhabited
+  rows : Array Row
+  deriving Repr, BEq, Inhabited
 
-/-! ## Staged implementation
+/-! ## Parsing -/
 
-The functions below are stubs. They'll be implemented against
-`tools/catalog_gen/reference/Catalog.pm` in follow-up turns:
+/-- Count occurrences of `c` in `s`. -/
+private def countChar (s : String) (c : Char) : Nat :=
+  s.foldl (fun acc ch => if ch == c then acc + 1 else acc) 0
 
-  - `parse : String → Except String File`  -- read `.dat` text
-  - `emit  : File → String`                  -- canonical text form
+/-- Index of the first occurrence of `c` in `s`, by character (not
+byte). Returns `none` if absent. Avoids `String.Pos` which has
+changed shape across Lean versions. -/
+private def findIdx? (s : String) (c : Char) : Option Nat := Id.run do
+  let mut i := 0
+  for ch in s.toList do
+    if ch == c then return some i
+    i := i + 1
+  return none
 
-The round-trip test (once both land) is structural:
+/-- Index of the LAST occurrence of `c` in `s`. -/
+private def findLastIdx? (s : String) (c : Char) : Option Nat := Id.run do
+  let mut last : Option Nat := none
+  let mut i := 0
+  for ch in s.toList do
+    if ch == c then last := some i
+    i := i + 1
+  return last
 
-    do
-      let f₁ ← parse src
-      let f₂ ← parse (emit f₁)
-      decide (f₁.rows = f₂.rows)
+/-- Extract the substring strictly between the FIRST `{` and the LAST
+`}` in `s`. Returns `none` if either brace is missing or they're
+out of order. -/
+private def extractBraceBody (s : String) : Option String :=
+  match findIdx? s '{', findLastIdx? s '}' with
+  | some li, some ri =>
+      if li + 1 > ri then none
+      else
+        let chars := s.toList
+        some (String.ofList ((chars.drop (li + 1)).take (ri - li - 1)))
+  | _, _ => none
 
-Byte-identical re-emit is a stretch goal — it requires preserving
-inter-token whitespace + comments. The structural-round-trip MVP
-is sufficient to make `Generated.lean` regeneratable from `.dat`
-sources at build time.
--/
+/-- Parse one record body (the content between `{` and `}`).
+Pre: `body` is everything between the outer braces. Splits on
+top-level commas (no nesting in the MVP — pg_namespace.dat has no
+array values) and parses each as `key => value`. -/
+private def parseRecordBody (body : String) : Except String Row := do
+  -- Split on commas. Risk: `'foo,bar'` would split too — but
+  -- pg_namespace.dat has no commas inside string values. Catalog.pm
+  -- itself uses Perl `eval` to sidestep this; we use a simple split
+  -- and document the limitation.
+  let parts := (body.splitOn ",").map String.trim
+  -- Drop empty trailing splits (caused by `, }` style trailing).
+  let parts := parts.filter (fun s => !s.isEmpty)
+  let mut fields : Array Field := #[]
+  for part in parts do
+    -- Each part is `key => value` (or `key=>value` with arbitrary ws).
+    let toks := part.splitOn "=>"
+    if toks.length != 2 then
+      throw s!"expected `key => value`, got `{part}`"
+    let key := toks[0]!.trim
+    let raw := toks[1]!.trim
+    -- value: '...' or _null_
+    let value ←
+      if raw == "_null_" then
+        pure Value.null
+      else if raw.startsWith "'" && raw.endsWith "'" && raw.length ≥ 2 then
+        -- Drop the outer single quotes via take/drop. In Lean 4.30+
+        -- these return String.Slice; .toString converts back.
+        pure (Value.str (((raw.drop 1).take (raw.length - 2)).toString))
+      else
+        throw s!"unrecognized value `{raw}` (expected '...' or _null_)"
+    fields := fields.push { key, value }
+  pure { fields }
+
+/-- Line-major parse: accumulate lines until braces balance, then
+parse the accumulated record. -/
+def parseFile (src : String) : Except String File := do
+  let lines := src.splitOn "\n"
+  let mut rows : Array Row := #[]
+  let mut acc : String := ""
+  let mut accOpens : Nat := 0
+  let mut accCloses : Nat := 0
+  let mut inRecord : Bool := false
+  for line in lines do
+    -- Strip comment-only lines (start with optional ws + '#'). For
+    -- pg_namespace.dat: comments are always on their own line.
+    -- More elaborate inline-comment stripping is deferred to later
+    -- .dat files that need it.
+    let strippedTrim := line.trim
+    let stripped :=
+      if inRecord then line
+      else if strippedTrim.startsWith "#" then ""
+      else line
+    if !inRecord then
+      -- Looking for a line that opens a record.
+      if stripped.any (· == '{') then
+        inRecord := true
+        acc := stripped
+        accOpens := countChar stripped '{'
+        accCloses := countChar stripped '}'
+        if accOpens == accCloses then
+          match extractBraceBody acc with
+          | some body =>
+              let row ← parseRecordBody body
+              rows := rows.push row
+              inRecord := false
+              acc := ""
+              accOpens := 0
+              accCloses := 0
+          | none => throw "internal: balanced braces but extract failed"
+    else
+      -- Inside a record: keep appending until balanced.
+      acc := acc ++ " " ++ stripped.trim
+      accOpens := accOpens + countChar stripped '{'
+      accCloses := accCloses + countChar stripped '}'
+      if accOpens == accCloses then
+        match extractBraceBody acc with
+        | some body =>
+            let row ← parseRecordBody body
+            rows := rows.push row
+            inRecord := false
+            acc := ""
+            accOpens := 0
+            accCloses := 0
+        | none => throw "internal: balanced braces but extract failed"
+  if inRecord then
+    throw s!"unterminated record at end of file: `{acc}`"
+  pure { rows }
+
+/-! ## Emitting (canonical form) -/
+
+def emitValue : Value → String
+  | .str s => "'" ++ s ++ "'"
+  | .null  => "_null_"
+
+def emitField (f : Field) : String :=
+  f.key ++ " => " ++ emitValue f.value
+
+def emitRow (r : Row) : String :=
+  "{ " ++ ", ".intercalate (r.fields.toList.map emitField) ++ " }"
+
+def emitFile (f : File) : String :=
+  "[\n" ++ String.join (f.rows.toList.map (fun r => emitRow r ++ ",\n")) ++ "]\n"
+
+/-! ## Round-trip helper -/
+
+/-- Parse-then-re-parse: `parse src → emit → parse → compare`.
+Returns `.ok ()` iff the two parsed structures are equal. -/
+def roundTripStructural (src : String) : Except String Unit := do
+  let f₁ ← parseFile src
+  let emitted := emitFile f₁
+  let f₂ ← parseFile emitted
+  if f₁ == f₂ then pure () else throw "structural round-trip mismatch"
 
 end Pg.Catalog.Dat

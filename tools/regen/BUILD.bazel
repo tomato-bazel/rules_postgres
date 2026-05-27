@@ -38,12 +38,14 @@ test_suite(
     tests = gate3_test_labels(CLUSTERS),
 )
 
-# Convenience: run all three gates as a single test_suite handle.
+# Convenience: run all three Pg.Ir gates + the catalog round-trip
+# under a single test_suite handle.
 test_suite(
     name = "gates_all",
     tests = [
         ":gate1_all",
         ":gate2_all",
         ":gate3_all",
+        "//lean:gate_catalog_dat_round_trip",
     ],
 )
