@@ -125,18 +125,24 @@ partial def printExpr : Expr → String
   -- EXTRACT
   | .extract field expr =>
       "EXTRACT(" ++ field ++ " FROM " ++ printExpr expr ++ ")"
-  -- CASE (searched + simple)
-  | .caseWhen whens else_ =>
+  -- CASE (searched + simple) — parallel-lists encoding.
+  | .caseWhen conds results elseExpr =>
+      let condStrs := conds.map printExpr
+      let resultStrs := results.map printExpr
       let armStr := String.intercalate " "
-        (whens.map (fun (c, r) => "WHEN " ++ printExpr c ++ " THEN " ++ printExpr r))
-      let elseStr := match else_ with
+        ((condStrs.zip resultStrs).map (fun (c, r) =>
+          "WHEN " ++ c ++ " THEN " ++ r))
+      let elseStr := match elseExpr with
         | none   => ""
         | some e => " ELSE " ++ printExpr e
       "(CASE " ++ armStr ++ elseStr ++ " END)"
-  | .caseSimple subject whens else_ =>
+  | .caseSimple subject whenVals thenResults elseExpr =>
+      let whenStrs := whenVals.map printExpr
+      let thenStrs := thenResults.map printExpr
       let armStr := String.intercalate " "
-        (whens.map (fun (v, r) => "WHEN " ++ printExpr v ++ " THEN " ++ printExpr r))
-      let elseStr := match else_ with
+        ((whenStrs.zip thenStrs).map (fun (v, r) =>
+          "WHEN " ++ v ++ " THEN " ++ r))
+      let elseStr := match elseExpr with
         | none   => ""
         | some e => " ELSE " ++ printExpr e
       "(CASE " ++ printExpr subject ++ " " ++ armStr ++ elseStr ++ " END)"
@@ -146,10 +152,25 @@ partial def printExpr : Expr → String
       String.intercalate ", " (vals.map printExpr) ++ "))"
   | .concat l r =>
       "(" ++ printExpr l ++ " || " ++ printExpr r ++ ")"
-  -- Scalar subquery
-  | .selectScalar projection table whereCond =>
-      "(SELECT " ++ projection ++ " FROM " ++ table ++
-      " WHERE " ++ printExpr whereCond ++ ")"
+  -- Scalar subquery — full production shape.
+  | .selectScalar col fromTable alias whereCond orderBy limit =>
+      let aliasStr := match alias with
+        | none   => ""
+        | some a => " AS " ++ a
+      let whereStr := match whereCond with
+        | none   => ""
+        | some w => " WHERE " ++ printExpr w
+      let orderStr := match orderBy with
+        | none           => ""
+        | some (e, desc) =>
+            " ORDER BY " ++ printExpr e ++
+            (if desc then " DESC" else " ASC")
+      let limitStr := match limit with
+        | none   => ""
+        | some n => " LIMIT " ++ toString n
+      "(SELECT " ++ printExpr col ++
+      " FROM " ++ fromTable ++ aliasStr ++
+      whereStr ++ orderStr ++ limitStr ++ ")"
   -- Dialect extension hatch
   | .ext e => printExprExt e
 
@@ -268,10 +289,13 @@ def printOptFrom (source : SelectSource) : String :=
   | .empty => ""
   | s      => " FROM " ++ printSelectSource s
 
-def printOptOrderBy (orderBy : Option Expr) : String :=
+def printOptOrderBy (orderBy : List (Expr × Bool)) : String :=
   match orderBy with
-  | none   => ""
-  | some e => " ORDER BY " ++ printExpr e
+  | []   => ""
+  | _    =>
+      " ORDER BY " ++ String.intercalate ", "
+        (orderBy.map (fun (e, desc) =>
+          printExpr e ++ (if desc then " DESC" else " ASC")))
 
 def printOptLimit (limit : Option Expr) : String :=
   match limit with
