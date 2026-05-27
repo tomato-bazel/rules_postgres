@@ -2,60 +2,18 @@
 /* DO NOT EDIT BY HAND. Regenerate via */
 /* `rules_postgres/tools/regen/regen-uuid.sh`. */
 
+/* Real-PG-style C for AST grounding. clang -ast-dump=json this
+ * file with real Postgres' headers, then diff against the AST
+ * for `src/backend/utils/adt/uuid.c`. The shared header set is
+ * what makes `pg_uuid_t`, `PG_GETARG_UUID_P`, etc. resolve to
+ * the same types/macros on both sides, so the diff captures
+ * algorithmic divergence rather than per-translation-unit type
+ * resolution noise. */
+#include "postgres.h"
 #include <string.h>
-#include <stdint.h>
-#include <stdbool.h>
-#include <stddef.h>
-
-/* Minimal Postgres type definitions for the standalone C oracle. */
-typedef unsigned int Oid;
-typedef uintptr_t Datum;
-typedef void *fmNodePtr;
-#define FLEXIBLE_ARRAY_MEMBER
-#define UUID_LEN 16
-#define WORDS_BIGENDIAN 0
-
-typedef int16_t int16;
-typedef int32_t int32;
-typedef int64_t int64;
-typedef uint32_t uint32;
-typedef uint64_t uint64;
-
-typedef struct
-{
-	unsigned char data[UUID_LEN];
-} pg_uuid_t;
-
-typedef struct NullableDatum
-{
-	Datum value;
-	bool isnull;
-} NullableDatum;
-
-struct FmgrInfo;
-
-typedef struct FunctionCallInfoBaseData
-{
-	struct FmgrInfo *flinfo;
-	fmNodePtr context;
-	fmNodePtr resultinfo;
-	Oid fncollation;
-	bool isnull;
-	short nargs;
-	NullableDatum args[FLEXIBLE_ARRAY_MEMBER];
-} FunctionCallInfoBaseData;
-
-/* V1 fmgr calling convention macros. */
-#define DatumGetPointer(x) ((void *) (uintptr_t) (x))
-#define PG_FUNCTION_ARGS FunctionCallInfoBaseData *fcinfo
-#define PG_GETARG_UUID_P(n) ((pg_uuid_t *) DatumGetPointer(fcinfo->args[n].value))
-#define PG_GETARG_INT64(n) ((int64) (fcinfo->args[n].value))
-#define PG_RETURN_BOOL(x) return (Datum)((x) ? 1 : 0)
-#define PG_RETURN_INT32(x) return (Datum) (uint32_t) (x)
-
-/* Hash function stubs (matching Postgres signature). */
-extern Datum hash_any(const unsigned char *k, int keylen);
-extern Datum hash_any_extended(const unsigned char *k, int keylen, uint64 seed);
+#include "common/hashfn.h"
+#include "utils/fmgrprotos.h"
+#include "utils/uuid.h"
 
 /* Forward declaration of the static helper. */
 static int uuid_internal_cmp(const pg_uuid_t *arg1, const pg_uuid_t *arg2);

@@ -1,0 +1,32 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(
+    glob(["regen-*.sh"]) + glob(["check-*-grounding.sh"]) + ["check-all.sh"],
+)
+
+# Gate 1 — regen idempotence.
+#
+# Runs every per-cluster `regen-*.sh --check` and asserts that the
+# committed Rust/C cluster emits match what the Lean source-of-truth
+# currently produces. Fails the build if any committed emit has drifted.
+#
+# Tagged `manual` because it requires `lean` on PATH (the underlying
+# regen scripts shell out to the host's Lean binary). Invoke explicitly:
+#
+#   bazel test //tools/regen:gate1_regen_idempotence
+#
+# Tagged `external` + `no-sandbox` so the regen scripts can resolve
+# `$(dirname BASH_SOURCE)/../../lean` against the real workspace tree
+# (Lean source layout is workspace-relative, not data-dep relative).
+sh_test(
+    name = "gate1_regen_idempotence",
+    srcs = ["check-all.sh"],
+    data = glob(["regen-*.sh"]),
+    tags = [
+        "external",
+        "manual",
+        "no-sandbox",
+    ],
+)
