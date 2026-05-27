@@ -2,54 +2,57 @@
 # Pg.Catalog.Dat
 
 Lean-native parser + emitter for Postgres' `.dat` system-catalog seed
-files (e.g. `pg_namespace.dat`, `pg_type.dat`).
+files (`pg_namespace.dat`, `pg_type.dat`, `pg_proc.dat`, ...).
 
 Grounded by PG's own `Catalog.pm::ParseData` (vendored at
-`tools/catalog_gen/reference/Catalog.pm`). That sub takes ~80 lines
-of Perl using a line-major brace-counting trick — same approach
-implemented here in Lean, without delegating to a `eval`.
+`tools/catalog_gen/reference/Catalog.pm`). PG itself delegates to Perl
+`eval` on each hash-ref line; we tokenize directly.
 
-## Grammar (from Catalog.pm::ParseData)
+## Grammar (subset PG's .dat files actually use)
 
-Top-level layout: comments + an `[ ... ]` array of `{...}` hash refs
-spanning one or more lines. The line-major parser:
+  - File body: `[ <record>, <record>, ..., ]` wrapped in `#`-comment
+    preamble + optional `#` comments between records.
+  - Record: `{ <field>, <field>, ... }` (may span multiple lines).
+  - Field: `<ident> => <value>`.
+  - Value: single-quoted string `'...'` (with `\\` and `\'` escapes)
+    OR bare identifier (e.g. `_null_`, or symbolic OID references
+    that pg_proc uses for type names).
 
-  1. Read input line-by-line.
-  2. If a line contains `{`, start an accumulator.
-  3. Count `{` and `}` in the accumulator — if balanced, the
-     accumulator holds a complete hash ref. Parse it as a record.
-  4. Otherwise read the next line and append, then retry the count.
-  5. Lines that never contain `{` and aren't inside an accumulator
-     are comment/blank/structural lines.
+## Implementation
 
-Each record is `{ key => value, key => value, ... }` with:
-  - keys: bare identifiers (`/[A-Za-z_][A-Za-z0-9_]*/`)
-  - values: single-quoted strings `'...'` or the bare token `_null_`
-
-Whitespace + newlines inside a record are flexible. Comments
-between records use `#` line syntax. The MVP doesn't preserve
-inter-token whitespace — emitter produces canonical form.
+Two-phase: char-stream → token-stream → File AST. The tokenizer is
+quote-aware (braces / commas inside `'...'` are NOT structural), so
+values like `'{0,0}'` (pg_aggregate.dat) parse correctly. Backslash
+escapes inside strings are decoded; canonical re-emit re-encodes them
+identically.
 
 ## Status
 
   - [x] Types: `Value`, `Field`, `Row`, `File`
   - [x] `parseFile : String → Except String File`
   - [x] `emitFile  : File → String`              (canonical form)
-  - [ ] Byte-identical re-emit (stretch — would need whitespace
-        preservation)
+  - [x] Round-trip stable on at least: `pg_namespace.dat`,
+        `pg_tablespace.dat`, `pg_authid.dat`, `pg_language.dat`,
+        `pg_class.dat`, `pg_collation.dat`, `pg_range.dat`,
+        `pg_am.dat`, `pg_database.dat`, `pg_ts_*.dat`,
+        `pg_type.dat`, `pg_conversion.dat`, `pg_opfamily.dat`,
+        `pg_aggregate.dat`, `pg_opclass.dat`, `pg_cast.dat`,
+        `pg_amproc.dat`, `pg_operator.dat`, `pg_amop.dat`, `pg_proc.dat`
+        (see lean/BUILD.bazel `gate_catalog_dat_round_trip_<name>`).
 -/
 
 namespace Pg.Catalog.Dat
 
-/-- A single `.dat` row field value. -/
+/-- A single field value. -/
 inductive Value where
-  /-- A single-quoted string. The wrapping quotes are NOT stored. -/
+  /-- A single-quoted string. The wrapping quotes are NOT stored;
+  escape sequences are decoded (`\'` → `'`, `\\` → `\`). -/
   | str (s : String)
-  /-- The bare `_null_` token. -/
-  | null
+  /-- A bare identifier (e.g. `_null_`, or symbolic OID refs). -/
+  | ident (s : String)
   deriving Repr, BEq, Inhabited
 
-/-- One `key => value` field. -/
+/-- One `key => value` field in a row. -/
 structure Field where
   key   : String
   value : Value
@@ -60,143 +63,159 @@ structure Row where
   fields : Array Field
   deriving Repr, BEq, Inhabited
 
-/-- A complete `.dat` file. The MVP doesn't preserve the file
-preamble (`#`-comments + the `[ ]` envelope) — `emitFile` produces
-those in canonical form. -/
+/-- A complete `.dat` file. -/
 structure File where
   rows : Array Row
   deriving Repr, BEq, Inhabited
 
-/-! ## Parsing -/
+/-! ## Tokenization -/
 
-/-- Count occurrences of `c` in `s`. -/
-private def countChar (s : String) (c : Char) : Nat :=
-  s.foldl (fun acc ch => if ch == c then acc + 1 else acc) 0
+inductive Token where
+  | lBrace | rBrace
+  | comma | arrow
+  | ident (s : String)
+  | str (s : String)
+  deriving Repr, BEq, Inhabited
 
-/-- Index of the first occurrence of `c` in `s`, by character (not
-byte). Returns `none` if absent. Avoids `String.Pos` which has
-changed shape across Lean versions. -/
-private def findIdx? (s : String) (c : Char) : Option Nat := Id.run do
-  let mut i := 0
-  for ch in s.toList do
-    if ch == c then return some i
-    i := i + 1
-  return none
+private def isIdentChar (c : Char) : Bool :=
+  c.isAlphanum || c == '_'
 
-/-- Index of the LAST occurrence of `c` in `s`. -/
-private def findLastIdx? (s : String) (c : Char) : Option Nat := Id.run do
-  let mut last : Option Nat := none
-  let mut i := 0
-  for ch in s.toList do
-    if ch == c then last := some i
-    i := i + 1
-  return last
-
-/-- Extract the substring strictly between the FIRST `{` and the LAST
-`}` in `s`. Returns `none` if either brace is missing or they're
-out of order. -/
-private def extractBraceBody (s : String) : Option String :=
-  match findIdx? s '{', findLastIdx? s '}' with
-  | some li, some ri =>
-      if li + 1 > ri then none
+/-- Tokenize a `.dat` source string into a flat list of `Token`s.
+Skips whitespace + `#`-to-end-of-line comments. -/
+partial def tokenize (src : String) : Except String (Array Token) := do
+  let cs := src.toList
+  let n := cs.length
+  let mut out : Array Token := #[]
+  let mut i : Nat := 0
+  while i < n do
+    let c := cs[i]!
+    if c.isWhitespace then
+      i := i + 1
+    else if c == '#' then
+      -- skip until end of line (or EOF)
+      while i < n && cs[i]! != '\n' do
+        i := i + 1
+    else if c == '{' then
+      out := out.push .lBrace
+      i := i + 1
+    else if c == '}' then
+      out := out.push .rBrace
+      i := i + 1
+    else if c == ',' then
+      out := out.push .comma
+      i := i + 1
+    else if c == '[' || c == ']' then
+      -- File envelope; not a record-level token. Skip silently —
+      -- record boundaries are governed by `{ ... }` directly.
+      i := i + 1
+    else if c == '=' then
+      -- expect `=>`
+      if i + 1 < n && cs[i+1]! == '>' then
+        out := out.push .arrow
+        i := i + 2
       else
-        let chars := s.toList
-        some (String.ofList ((chars.drop (li + 1)).take (ri - li - 1)))
-  | _, _ => none
-
-/-- Parse one record body (the content between `{` and `}`).
-Pre: `body` is everything between the outer braces. Splits on
-top-level commas (no nesting in the MVP — pg_namespace.dat has no
-array values) and parses each as `key => value`. -/
-private def parseRecordBody (body : String) : Except String Row := do
-  -- Split on commas. Risk: `'foo,bar'` would split too — but
-  -- pg_namespace.dat has no commas inside string values. Catalog.pm
-  -- itself uses Perl `eval` to sidestep this; we use a simple split
-  -- and document the limitation.
-  let parts := (body.splitOn ",").map String.trim
-  -- Drop empty trailing splits (caused by `, }` style trailing).
-  let parts := parts.filter (fun s => !s.isEmpty)
-  let mut fields : Array Field := #[]
-  for part in parts do
-    -- Each part is `key => value` (or `key=>value` with arbitrary ws).
-    let toks := part.splitOn "=>"
-    if toks.length != 2 then
-      throw s!"expected `key => value`, got `{part}`"
-    let key := toks[0]!.trim
-    let raw := toks[1]!.trim
-    -- value: '...' or _null_
-    let value ←
-      if raw == "_null_" then
-        pure Value.null
-      else if raw.startsWith "'" && raw.endsWith "'" && raw.length ≥ 2 then
-        -- Drop the outer single quotes via take/drop. In Lean 4.30+
-        -- these return String.Slice; .toString converts back.
-        pure (Value.str (((raw.drop 1).take (raw.length - 2)).toString))
-      else
-        throw s!"unrecognized value `{raw}` (expected '...' or _null_)"
-    fields := fields.push { key, value }
-  pure { fields }
-
-/-- Line-major parse: accumulate lines until braces balance, then
-parse the accumulated record. -/
-def parseFile (src : String) : Except String File := do
-  let lines := src.splitOn "\n"
-  let mut rows : Array Row := #[]
-  let mut acc : String := ""
-  let mut accOpens : Nat := 0
-  let mut accCloses : Nat := 0
-  let mut inRecord : Bool := false
-  for line in lines do
-    -- Strip comment-only lines (start with optional ws + '#'). For
-    -- pg_namespace.dat: comments are always on their own line.
-    -- More elaborate inline-comment stripping is deferred to later
-    -- .dat files that need it.
-    let strippedTrim := line.trim
-    let stripped :=
-      if inRecord then line
-      else if strippedTrim.startsWith "#" then ""
-      else line
-    if !inRecord then
-      -- Looking for a line that opens a record.
-      if stripped.any (· == '{') then
-        inRecord := true
-        acc := stripped
-        accOpens := countChar stripped '{'
-        accCloses := countChar stripped '}'
-        if accOpens == accCloses then
-          match extractBraceBody acc with
-          | some body =>
-              let row ← parseRecordBody body
-              rows := rows.push row
-              inRecord := false
-              acc := ""
-              accOpens := 0
-              accCloses := 0
-          | none => throw "internal: balanced braces but extract failed"
+        throw s!"expected `=>` at offset {i}"
+    else if c == '\'' then
+      -- single-quoted string with backslash escapes
+      i := i + 1  -- skip opening quote
+      let mut acc : List Char := []
+      let mut closed : Bool := false
+      while i < n && !closed do
+        let d := cs[i]!
+        if d == '\\' then
+          -- escape sequence: backslash + next char (decoded literally)
+          if i + 1 >= n then throw "unterminated escape at end of file"
+          let e := cs[i+1]!
+          acc := acc.concat e
+          i := i + 2
+        else if d == '\'' then
+          closed := true
+          i := i + 1
+        else
+          acc := acc.concat d
+          i := i + 1
+      if !closed then throw "unterminated string literal"
+      out := out.push (.str (String.ofList acc))
+    else if isIdentChar c then
+      -- bare identifier
+      let start := i
+      while i < n && isIdentChar cs[i]! do
+        i := i + 1
+      out := out.push (.ident (String.ofList ((cs.drop start).take (i - start))))
     else
-      -- Inside a record: keep appending until balanced.
-      acc := acc ++ " " ++ stripped.trim
-      accOpens := accOpens + countChar stripped '{'
-      accCloses := accCloses + countChar stripped '}'
-      if accOpens == accCloses then
-        match extractBraceBody acc with
-        | some body =>
-            let row ← parseRecordBody body
-            rows := rows.push row
-            inRecord := false
-            acc := ""
-            accOpens := 0
-            accCloses := 0
-        | none => throw "internal: balanced braces but extract failed"
-  if inRecord then
-    throw s!"unterminated record at end of file: `{acc}`"
+      throw s!"unexpected character `{c}` at offset {i}"
+  pure out
+
+/-! ## Parsing (token stream → File) -/
+
+/-- Parse one `{ key => value, ... }` record starting at `i`.
+Returns the row + the index one past the closing `}`. -/
+private partial def parseRow (toks : Array Token) (i : Nat) : Except String (Row × Nat) := do
+  if i ≥ toks.size || toks[i]? != some Token.lBrace then
+    throw s!"expected left-brace at token {i}"
+  let mut j := i + 1
+  let mut fields : Array Field := #[]
+  while j < toks.size do
+    match toks[j]! with
+    | .rBrace =>
+        return ({ fields }, j + 1)
+    | .ident key =>
+        if j + 1 ≥ toks.size then throw "expected arrow after key, got EOF"
+        if toks[j+1]! != .arrow then
+          throw s!"expected arrow after key {key} at token {j+1}"
+        if j + 2 ≥ toks.size then throw "expected value after arrow, got EOF"
+        let value ←
+          match toks[j+2]! with
+          | .str s   => pure (Value.str s)
+          | .ident s => pure (Value.ident s)
+          | other    => throw s!"expected value at token {j+2}, got {repr other}"
+        fields := fields.push { key, value }
+        if j + 3 < toks.size && toks[j+3]! == .comma then
+          j := j + 4
+        else
+          j := j + 3
+    | other =>
+        throw s!"expected ident or right-brace at token {j}, got {repr other}"
+  throw "unterminated record (no closing brace found)"
+
+/-- Parse the whole `.dat` file from its tokenized form. -/
+partial def parseTokens (toks : Array Token) : Except String File := do
+  let mut rows : Array Row := #[]
+  let mut i := 0
+  while i < toks.size do
+    match toks[i]! with
+    | .lBrace =>
+        let (row, j) ← parseRow toks i
+        rows := rows.push row
+        i := j
+        -- skip optional trailing comma between records
+        if i < toks.size && toks[i]! == .comma then
+          i := i + 1
+    | .comma => i := i + 1  -- stray comma between records — tolerate
+    | other  => throw s!"expected left-brace at top level, got {repr other}"
   pure { rows }
+
+/-- Parse `.dat` source text. -/
+def parseFile (src : String) : Except String File := do
+  let toks ← tokenize src
+  parseTokens toks
 
 /-! ## Emitting (canonical form) -/
 
+/-- Re-encode a string for emission: turn `'` into `\'` and `\` into
+`\\`. Mirrors Perl single-quoted-string escapes. -/
+private def escapeStr (s : String) : String :=
+  let escaped := s.toList.foldl
+    (fun acc c =>
+      if c == '\\' then acc ++ ['\\', '\\']
+      else if c == '\'' then acc ++ ['\\', '\'']
+      else acc.concat c)
+    ([] : List Char)
+  String.ofList escaped
+
 def emitValue : Value → String
-  | .str s => "'" ++ s ++ "'"
-  | .null  => "_null_"
+  | .str s    => "'" ++ escapeStr s ++ "'"
+  | .ident s  => s
 
 def emitField (f : Field) : String :=
   f.key ++ " => " ++ emitValue f.value
@@ -209,8 +228,7 @@ def emitFile (f : File) : String :=
 
 /-! ## Round-trip helper -/
 
-/-- Parse-then-re-parse: `parse src → emit → parse → compare`.
-Returns `.ok ()` iff the two parsed structures are equal. -/
+/-- Parse → emit → parse → structural compare. -/
 def roundTripStructural (src : String) : Except String Unit := do
   let f₁ ← parseFile src
   let emitted := emitFile f₁

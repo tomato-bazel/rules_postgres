@@ -39,20 +39,22 @@ Validation:
 ## Status (2026-05-27)
 
   - [x] Vendored reference grammar: `reference/Catalog.pm` (from PG 17.6)
-  - [x] Vendored sample `.dat`: `lean/Pg/Catalog/dat/pg_namespace.dat`
-  - [x] Lean grammar types + line-major parser + canonical emitter
-        in `lean/Pg/Catalog/Dat.lean`
-  - [x] Round-trip smoke `lean/Pg/Catalog/DatRoundTrip.lean`
-  - [x] Bazel-native gate `//lean:gate_catalog_dat_round_trip` (uses
-        rules_lean 0.3.3's `lean_emit.data` attr to stage the .dat
-        file alongside the Lean entry; `lean_regen_test` diff-tests
-        the captured stdout). Included in `//:gates`.
-  - [ ] Extend parser to handle `pg_type.dat`, `pg_authid.dat`,
-        `pg_class.dat`, `pg_proc.dat` (PG-CAT-3d coverage). Each
-        adds value forms: array literals (`'{0,0}'`), escape
-        sequences, multi-line records, etc.
+  - [x] All 24 vendored `.dat` files: `lean/Pg/Catalog/dat/*.dat`
+  - [x] Lean grammar types + tokenizer-driven parser + canonical
+        emitter in `lean/Pg/Catalog/Dat.lean`. Handles quoted strings
+        with `\\` and `\'` escapes, bare-identifier values,
+        brace-containing strings (pg_aggregate's `'{0,0}'`),
+        multi-line records — every shape the vendored .dat files use.
+  - [x] Bazel-native round-trip gate
+        `//lean:gate_catalog_dat_round_trip` (rules_lean 0.3.3's
+        `lean_emit.data` stages all 24 .dat files; the entry parses +
+        re-emits + re-parses each; diff_test asserts stdout equals
+        committed `_round_trip_expected.txt`). Included in `//:gates`.
+  - [x] **Coverage: 6,777 rows across all 24 `.dat` files** round-trip
+        stable (pg_namespace 3 → pg_proc 3,314 → pg_amop 945 → ...).
   - [ ] `Pg.Catalog.Generated` rebuild script (lean_emit reading the
-        parsed `.dat` files, writing the catalog snapshot)
+        parsed `.dat` files, writing the catalog snapshot with the
+        cross-links AddDefaultValues + GenerateArrayTypes apply).
 
 ## Why this replaces the Python script
 
