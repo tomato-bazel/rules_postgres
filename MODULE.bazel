@@ -41,15 +41,16 @@ bazel_dep(name = "rules_lean", version = "0.3.1")
 lake = use_extension("@rules_lean//lean:lake.bzl", "lake")
 lake.workspace(
     name = "rules_postgres_lake",
-    lakefile = "//tools/lake:lakefile.lean",
-    lake_manifest = "//tools/lake:lake-manifest.json",
-    lean_toolchain = "//tools/lake:lean-toolchain",
     # Batteries (the one nominal `require` in our lakefile) doesn't
     # have a Reservoir prebuilt-olean cache. allow_source_build makes
     # rules_lean run `lake build batteries` from source.
     allow_source_build = True,
+    lake_manifest = "//tools/lake:lake-manifest.json",
+    lakefile = "//tools/lake:lakefile.lean",
+    lean_toolchain = "//tools/lake:lean-toolchain",
 )
 use_repo(lake, "rules_postgres_lake")
+
 register_toolchains("@rules_postgres_lake//:lean_toolchain_def")
 
 # rules_lang — exposes `Polyglot.Sql.Ast` (the generic 32-ctor
@@ -67,6 +68,49 @@ bazel_dep(name = "rules_lora", version = "0.0.1")
 
 # Dev-only: only loaded by docs/BUILD.bazel.
 bazel_dep(name = "stardoc", version = "0.7.2", dev_dependency = True)
+
+# Dev-only: rules_rust drives Gate 2 (cluster behavioral diff-test) —
+# every `rust/pg_<cluster>/` becomes a rust_library + cc_library
+# (c_oracle) + rust_test pair. Consumers of rules_postgres don't run
+# these tests, so the whole rules_rust surface is gated dev-only.
+bazel_dep(name = "rules_rust", version = "0.70.0", dev_dependency = True)
+
+rust = use_extension(
+    "@rules_rust//rust:extensions.bzl",
+    "rust",
+    dev_dependency = True,
+)
+rust.toolchain(
+    edition = "2021",
+    versions = ["1.95.0"],
+)
+use_repo(rust, "rust_toolchains")
+
+register_toolchains(
+    "@rust_toolchains//:all",
+    dev_dependency = True,
+)
+
+# crate_universe: provides proptest (and any future test-only deps).
+# isolate=True so our @crates universe doesn't collide with sibling
+# repos that also register a `crates` extension.
+crate = use_extension(
+    "@rules_rust//crate_universe:extension.bzl",
+    "crate",
+    dev_dependency = True,
+    isolate = True,
+)
+crate.spec(
+    package = "proptest",
+    version = "1",
+)
+# bumpalo: arena allocator backing pg_palloc's MemoryContext adapter.
+crate.spec(
+    package = "bumpalo",
+    version = "3",
+)
+crate.from_specs(name = "crates")
+use_repo(crate, "crates")
 
 # Dev-only smoke test wiring. Pulls libpg_query (for SQL parse-validation
 # examples) and the full Postgres source tree (for the pg_meson_configure

@@ -1,4 +1,39 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
 package(default_visibility = ["//visibility:public"])
+
+# c_oracle: vendored real-Postgres bodies (renamed via preprocessor)
+# + setjmp wrapper. The base `macaddr.c` source is included by
+# `renamed_macaddr.c` via #include, so it's a textual header.
+cc_library(
+    name = "c_oracle",
+    srcs = [
+        "c_oracle/renamed_macaddr.c",
+        "c_oracle/wrappers.c",
+    ],
+    textual_hdrs = ["c_oracle/macaddr.c"],
+    deps = ["//rust/pg_fcinfo:ereport_hdr"],
+)
+
+rust_library(
+    name = "pg_macaddr",
+    srcs = ["src/lib.rs"],
+    edition = "2021",
+    deps = ["//rust/pg_fcinfo"],
+)
+
+rust_test(
+    name = "diff_macaddr",
+    srcs = ["tests/diff_macaddr.rs"],
+    edition = "2021",
+    deps = [
+        ":c_oracle",
+        ":pg_macaddr",
+        "//rust/pg_fcinfo",
+        "@crates//:proptest",
+    ],
+)
 
 filegroup(
     name = "lib_rs",

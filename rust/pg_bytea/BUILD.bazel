@@ -1,4 +1,41 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
 package(default_visibility = ["//visibility:public"])
+
+# c_oracle: vendored real-Postgres bodies (renamed via preprocessor)
+# + setjmp wrapper. The base `bytea.c` source is included by
+# `renamed_bytea.c` via #include, so it's a textual header.
+cc_library(
+    name = "c_oracle",
+    srcs = [
+        "c_oracle/renamed_bytea.c",
+        "c_oracle/wrappers.c",
+    ],
+    textual_hdrs = ["c_oracle/bytea.c"],
+    deps = ["//rust/pg_fcinfo:ereport_hdr",
+        "//rust/pg_palloc:palloc_hdr",],
+)
+
+rust_library(
+    name = "pg_bytea",
+    srcs = ["src/lib.rs"],
+    edition = "2021",
+    deps = ["//rust/pg_fcinfo",
+        "//rust/pg_palloc",],
+)
+
+rust_test(
+    name = "diff_bytea",
+    srcs = ["tests/diff_bytea.rs"],
+    edition = "2021",
+    deps = [
+        ":c_oracle",
+        ":pg_bytea",
+        "//rust/pg_fcinfo",
+        "@crates//:proptest",
+    ],
+)
 
 filegroup(
     name = "lib_rs",

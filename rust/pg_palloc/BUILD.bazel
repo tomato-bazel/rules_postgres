@@ -1,0 +1,35 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+# Public C header — consumed by cluster c_oracle/ sources that allocate
+# Postgres-style (bytea, text, interval, timestamp_arith).
+cc_library(
+    name = "palloc_hdr",
+    hdrs = ["include/pg_palloc.h"],
+    includes = ["include"],
+)
+
+# C-ABI smoke test harness — exercised by tests/c_abi_smoke.rs to
+# verify the Rust↔C ABI for palloc/pfree/repalloc.
+cc_library(
+    name = "c_abi_smoke_lib",
+    srcs = ["tests/c_abi_smoke.c"],
+    deps = [":palloc_hdr"],
+)
+
+rust_library(
+    name = "pg_palloc",
+    srcs = ["src/lib.rs"],
+    edition = "2021",
+    deps = ["@crates//:bumpalo"],
+)
+
+# Filegroup for Gate 1's diff_test on the committed src/lib.rs (no
+# Lean emit yet for pg_palloc — declared for parity with other
+# foundation crates).
+filegroup(
+    name = "lib_rs",
+    srcs = ["src/lib.rs"],
+)

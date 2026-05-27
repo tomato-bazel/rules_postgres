@@ -1,4 +1,39 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
 package(default_visibility = ["//visibility:public"])
+
+# c_oracle: vendored real-Postgres bodies (renamed via preprocessor)
+# + setjmp wrapper. The base `uuid.c` source is included by
+# `renamed_uuid.c` via #include, so it's a textual header.
+cc_library(
+    name = "c_oracle",
+    srcs = [
+        "c_oracle/renamed_uuid.c",
+        "c_oracle/wrappers.c",
+    ],
+    textual_hdrs = ["c_oracle/uuid.c"],
+    deps = ["//rust/pg_fcinfo:ereport_hdr"],
+)
+
+rust_library(
+    name = "pg_uuid",
+    srcs = ["src/lib.rs"],
+    edition = "2021",
+    deps = ["//rust/pg_fcinfo"],
+)
+
+rust_test(
+    name = "diff_uuid",
+    srcs = ["tests/diff_uuid.rs"],
+    edition = "2021",
+    deps = [
+        ":c_oracle",
+        ":pg_uuid",
+        "//rust/pg_fcinfo",
+        "@crates//:proptest",
+    ],
+)
 
 filegroup(
     name = "lib_rs",

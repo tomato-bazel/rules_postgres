@@ -1,0 +1,51 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+# pg_fcinfo — Postgres V1 fmgr ABI bridge. Foundation crate every
+# Pg.Ir cluster's Bazel-native diff-test (Gate 2) links against.
+
+# c_oracle_ereport.h is included by every cluster's c_oracle/wrappers.c
+# + renamed_<cluster>.c. Exposed via cc_library so cluster cc_library
+# targets can `deps = [":ereport_hdr"]` and pick it up on the include path.
+cc_library(
+    name = "ereport_hdr",
+    hdrs = ["include/c_oracle_ereport.h"],
+    includes = ["include"],
+)
+
+# ABI probe: tests/round_trip.rs's `verify_abi()` invokes this C helper
+# to compare native PG sizeof/offsetof against the Rust mirrors. Same
+# build target also includes the V1 fixture used by round_trip.rs.
+cc_library(
+    name = "abi_probe",
+    srcs = [
+        "c_oracle/abi_probe.c",
+        "tests/fixture.c",
+    ],
+    deps = [":ereport_hdr"],
+)
+
+rust_library(
+    name = "pg_fcinfo",
+    srcs = ["src/lib.rs"],
+    edition = "2021",
+)
+
+rust_test(
+    name = "round_trip",
+    srcs = ["tests/round_trip.rs"],
+    edition = "2021",
+    deps = [
+        ":abi_probe",
+        ":pg_fcinfo",
+    ],
+)
+
+# Filegroup for Gate 1's diff_test (committed src/lib.rs label).
+# Declared above the rust_library above for use by gate1_cluster.
+filegroup(
+    name = "lib_rs",
+    srcs = ["src/lib.rs"],
+)
