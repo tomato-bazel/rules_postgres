@@ -118,10 +118,15 @@ crate.spec(
 crate.from_specs(name = "crates")
 use_repo(crate, "crates")
 
-# Dev-only smoke test wiring. Pulls libpg_query (for SQL parse-validation
-# examples) and the full Postgres source tree (for the pg_meson_configure
-# example under examples/meson_smoke).
-pg = use_extension("//postgres:extensions.bzl", "pg", dev_dependency = True)
+# libpg_query backs the user-facing `pg_parse_valid_test` macro + the
+# public `parse_check` / `plpgsql_to_json` binaries under //tools, so it
+# must resolve for downstream consumers — keep it non-dev. The full
+# Postgres source tree is only needed by the pg_meson_configure example
+# under examples/meson_smoke, so it stays dev-only.
+pg = use_extension("//postgres:extensions.bzl", "pg")
 pg.query(version = "17-6.2.2")
-pg.source(version = "17.6")
-use_repo(pg, "libpg_query", "postgres_src")
+use_repo(pg, "libpg_query")
+
+pg_dev = use_extension("//postgres:extensions.bzl", "pg", dev_dependency = True)
+pg_dev.source(version = "17.6")
+use_repo(pg_dev, "postgres_src")
