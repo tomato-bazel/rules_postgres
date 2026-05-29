@@ -296,6 +296,8 @@
     "https://raw.githubusercontent.com/fastverk/bazel-registry-premium/main/modules/platforms/0.0.8/MODULE.bazel": "not found",
     "https://raw.githubusercontent.com/fastverk/bazel-registry-premium/main/modules/platforms/0.0.9/MODULE.bazel": "not found",
     "https://raw.githubusercontent.com/fastverk/bazel-registry-premium/main/modules/platforms/1.0.0/MODULE.bazel": "not found",
+    "https://raw.githubusercontent.com/fastverk/bazel-registry-premium/main/modules/polyglot_ast/0.0.1/MODULE.bazel": "33be546624f3ae5bc359d8a33201d09eaa970c41f578fa202bf2126541860302",
+    "https://raw.githubusercontent.com/fastverk/bazel-registry-premium/main/modules/polyglot_ast/0.0.1/source.json": "76028ebe84f0a488c6a1957257ec0d4bbaa43d361b462bbfa6d7ea26a39e7a29",
     "https://raw.githubusercontent.com/fastverk/bazel-registry-premium/main/modules/protobuf/21.7/MODULE.bazel": "not found",
     "https://raw.githubusercontent.com/fastverk/bazel-registry-premium/main/modules/protobuf/27.0/MODULE.bazel": "not found",
     "https://raw.githubusercontent.com/fastverk/bazel-registry-premium/main/modules/protobuf/28.3/MODULE.bazel": "not found",
@@ -363,6 +365,7 @@
     "https://raw.githubusercontent.com/fastverk/bazel-registry-premium/main/modules/rules_lang/0.0.4/source.json": "ead85c6bded20184ecd4ec17fbc232c8daa9c210be3867baf614d12ab0d51b39",
     "https://raw.githubusercontent.com/fastverk/bazel-registry-premium/main/modules/rules_lean/0.3.1/MODULE.bazel": "not found",
     "https://raw.githubusercontent.com/fastverk/bazel-registry-premium/main/modules/rules_lean/0.3.5/MODULE.bazel": "not found",
+    "https://raw.githubusercontent.com/fastverk/bazel-registry-premium/main/modules/rules_lean/0.3.7/MODULE.bazel": "not found",
     "https://raw.githubusercontent.com/fastverk/bazel-registry-premium/main/modules/rules_license/0.0.3/MODULE.bazel": "not found",
     "https://raw.githubusercontent.com/fastverk/bazel-registry-premium/main/modules/rules_license/0.0.7/MODULE.bazel": "not found",
     "https://raw.githubusercontent.com/fastverk/bazel-registry-premium/main/modules/rules_license/0.0.8/MODULE.bazel": "not found",
@@ -562,7 +565,8 @@
     "https://raw.githubusercontent.com/fastverk/bazel-registry/main/modules/rules_kotlin/1.9.6/MODULE.bazel": "not found",
     "https://raw.githubusercontent.com/fastverk/bazel-registry/main/modules/rules_lean/0.3.1/MODULE.bazel": "e27d21d2c5563bdabf93b8fa81ac7320afd2a64aae06032a30c51390a26c531c",
     "https://raw.githubusercontent.com/fastverk/bazel-registry/main/modules/rules_lean/0.3.5/MODULE.bazel": "b1f5ea3fd7c60053a25a6e494128abff5c15c3a751a2add213ed7861fc9de690",
-    "https://raw.githubusercontent.com/fastverk/bazel-registry/main/modules/rules_lean/0.3.5/source.json": "8db1c6cf94be1523410407f463ed6b0232ec6d38ad66373763a88d2b38c07ac4",
+    "https://raw.githubusercontent.com/fastverk/bazel-registry/main/modules/rules_lean/0.3.7/MODULE.bazel": "558d8234371f2f8748e090adbad28c1be5056a36e934f267ac1c99cdd6da7678",
+    "https://raw.githubusercontent.com/fastverk/bazel-registry/main/modules/rules_lean/0.3.7/source.json": "56d2425ed6b3f7eea8030b141f8ca6b847cdecebc6bf7eca03bf82aaafdccb43",
     "https://raw.githubusercontent.com/fastverk/bazel-registry/main/modules/rules_license/0.0.3/MODULE.bazel": "not found",
     "https://raw.githubusercontent.com/fastverk/bazel-registry/main/modules/rules_license/0.0.7/MODULE.bazel": "not found",
     "https://raw.githubusercontent.com/fastverk/bazel-registry/main/modules/rules_license/0.0.8/MODULE.bazel": "not found",
@@ -705,8 +709,8 @@
     },
     "@@rules_lean+//lean:lake.bzl%lake": {
       "general": {
-        "bzlTransitiveDigest": "agu9POW0H17WqI1+iN6wtCdKTciIjxzQ2gdPgL5xuTY=",
-        "usagesDigest": "EvHExCyDsVaKc7muSFAYaoIeA7K1yNjYZR5NPON2VtA=",
+        "bzlTransitiveDigest": "TSkwKKphDCoYLuQrznBpnrnmoMj4SwnnWW9GsydjB1o=",
+        "usagesDigest": "jEeEJMGz3RhEBBPHOuzWFm6aS2pVk8fL/KwHOL7ozwU=",
         "recordedInputs": [],
         "generatedRepoSpecs": {
           "rules_postgres_lake": {
@@ -716,6 +720,15 @@
               "lakefile": "@@//tools/lake:lakefile.lean",
               "lake_manifest": "@@//tools/lake:lake-manifest.json",
               "allow_source_build": true
+            }
+          },
+          "polyglot_ast_lake": {
+            "repoRuleId": "@@rules_lean+//lean:lake.bzl%lake_workspace",
+            "attributes": {
+              "lean_toolchain": "@@polyglot_ast+//lean:lean-toolchain",
+              "lakefile": "@@polyglot_ast+//lean:lakefile.lean",
+              "lake_manifest": "@@polyglot_ast+//lean:lake-manifest.json",
+              "allow_source_build": false
             }
           }
         }

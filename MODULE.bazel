@@ -53,11 +53,15 @@ use_repo(lake, "rules_postgres_lake")
 
 register_toolchains("@rules_postgres_lake//:lean_toolchain_def")
 
-# rules_lang — `Polyglot.Sql.Ast` (Pattern-A `Ext` slot for Pg.Ast)
-# plus the `c_ast_struct_diff_test` rule that backs Gate 3 (clang AST
-# structural diff vs real Postgres source). Resolved via the premium
+# rules_lang — the `c_ast_struct_diff_test` rule that backs Gate 3 (clang
+# AST structural diff vs real Postgres source). Resolved via the premium
 # private registry (see .bazelrc).
 bazel_dep(name = "rules_lang", version = "0.0.4")
+
+# polyglot_ast — the shared Lean kernel; `Polyglot.Sql.Ast` (the generic SQL
+# atlas) moved here from rules_lang. Pg.Ast's Pattern-A `Ext` slot consumes
+# it cross-repo (see //lean:BUILD.bazel). Premium private registry.
+bazel_dep(name = "polyglot_ast", version = "0.0.1")
 
 # rules_lora — Bazel-native LoRA fine-tuning. Used by Pg.Ir's
 # local-model fine-tune track: the Stream A LLM-authoring loop's

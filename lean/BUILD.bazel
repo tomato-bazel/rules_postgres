@@ -123,7 +123,7 @@ lean_test(
     name = "smoke_test",
     srcs = [
         # Dependency-ordered: lean_test compiles srcs in list order.
-        "@rules_lang//lean:Polyglot/Sql/Ast.lean",
+        "@polyglot_ast//lean:Polyglot/Sql/Ast.lean",
         "Pg/Ty.lean",
         "Pg/RegexAst.lean",
         "Pg/Catalog/Oid.lean",
@@ -143,22 +143,21 @@ lean_test(
     visibility = ["//visibility:public"],
 )
 
-# Smoke test that exercises cross-repo wiring with rules_lang's
-# `Polyglot.Sql.Ast` (the generic SQL atlas). Pg/Ast.lean's factor
+# Smoke test that exercises cross-repo wiring with the polyglot_ast
+# kernel's `Polyglot.Sql.Ast` (the generic SQL atlas). Pg/Ast.lean's factor
 # step (Phase 1b) will `import Polyglot.Sql.Ast` and define
 # `Pg.Ast.ExprExt` extending it; this smoke test proves the import
 # path resolves before the heavy factor work proceeds.
 #
-# Sources include the rules_lang-side file via `@rules_lang//lean:...`
-# (which works under bzlmod local_path_override + the rules_lean
-# cross-repo `_module_path` patch). The package check sees
-# `lean/Polyglot/Sql/Ast.lean` after the `../rules_lang+/` prefix
-# strip — same package as the rules_postgres-side files, so the
-# stage layout works.
+# Sources include the kernel-side file via `@polyglot_ast//lean:...`
+# (which works under the rules_lean cross-repo `_module_path` patch). The
+# package check sees `lean/Polyglot/Sql/Ast.lean` after the
+# `../polyglot_ast+/` prefix strip — same package as the rules_postgres-side
+# files, so the stage layout works.
 lean_test(
     name = "polyglot_sql_smoke_test",
     srcs = [
-        "@rules_lang//lean:Polyglot/Sql/Ast.lean",
+        "@polyglot_ast//lean:Polyglot/Sql/Ast.lean",
         "Polyglot/SqlSmoke.lean",
     ],
     entry = "Polyglot/SqlSmoke.lean",
