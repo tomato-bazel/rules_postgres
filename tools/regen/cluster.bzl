@@ -28,7 +28,7 @@ cross-repo consumers without pulling in rules_rust.
 
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("@rules_cc//cc:defs.bzl", "cc_library")
-load("@rules_lang//c:rules.bzl", "c_ast_dump_single", "c_ast_struct_diff_test_suite")
+load("@rules_lang//rules/c:rules.bzl", "c_ast_dump_single", "c_ast_struct_diff_test_suite")
 load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
 
 # ─── Oracle shim codegen ──────────────────────────────────────────

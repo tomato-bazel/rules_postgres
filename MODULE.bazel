@@ -56,7 +56,7 @@ register_toolchains("@rules_postgres_lake//:lean_toolchain_def")
 # rules_lang — the `c_ast_struct_diff_test` rule that backs Gate 3 (clang
 # AST structural diff vs real Postgres source). Resolved via the premium
 # private registry (see .bazelrc).
-bazel_dep(name = "rules_lang", version = "0.0.7")
+bazel_dep(name = "rules_lang", version = "0.0.8")
 
 # polyglot_ast — the shared Lean kernel; `Polyglot.Sql.Ast` (the generic SQL
 # atlas) moved here from rules_lang. Pg.Ast's Pattern-A `Ext` slot consumes
