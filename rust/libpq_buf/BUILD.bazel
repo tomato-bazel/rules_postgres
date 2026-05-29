@@ -1,4 +1,4 @@
-load("//c:rules.bzl", "rust_llvm_ir_single")
+load("@rules_lang//c:rules.bzl", "rust_llvm_ir_single")
 
 # Rust LLVM IR for the libpq_buf crate, paired with the C IR produced by
 # `//examples/postgres_smoke:fe_misc_c_ll` for the `llvm_ir_equiv_test`
