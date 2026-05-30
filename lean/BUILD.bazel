@@ -1,4 +1,5 @@
 load("@rules_lean//lean:lean.bzl", "lean_main_test", "lean_test")
+load("//lean:pg_ast_smoke.bzl", "pg_ast_smoke_test")
 load("//tools/regen:clusters.bzl", "CLUSTERS")
 load("//tools/regen:lean_emits.bzl", "wire_all_lean_emits")
 
@@ -162,5 +163,57 @@ lean_test(
         "Polyglot/SqlSmoke.lean",
     ],
     entry = "Polyglot/SqlSmoke.lean",
+    visibility = ["//visibility:public"],
+)
+
+# ─── Pg AST per-constructor smoke tests ────────────────────────────
+#
+# Adopted from Aion's `lean/Aion/Db/PgAst*Test.lean` (Phase C of the
+# Common-Pg consolidation). Each test pins the SQL printer surface +
+# Tightening-E surface-lock for one BodyStmt constructor (or family).
+
+pg_ast_smoke_test(name = "pg_ast_begin_exception_test",       entry = "Pg/AstBeginExceptionTest.lean")
+pg_ast_smoke_test(name = "pg_ast_case_stmt_test",             entry = "Pg/AstCaseStmtTest.lean")
+pg_ast_smoke_test(name = "pg_ast_declare_block_test",         entry = "Pg/AstDeclareBlockTest.lean")
+pg_ast_smoke_test(name = "pg_ast_declare_local_test",         entry = "Pg/AstDeclareLocalTest.lean")
+pg_ast_smoke_test(name = "pg_ast_execute_format_test",        entry = "Pg/AstExecuteFormatTest.lean")
+pg_ast_smoke_test(name = "pg_ast_for_record_in_loop_test",    entry = "Pg/AstForRecordInLoopTest.lean")
+pg_ast_smoke_test(name = "pg_ast_if_else_if_test",            entry = "Pg/AstIfElseIfTest.lean")
+pg_ast_smoke_test(name = "pg_ast_insert_delete_test",         entry = "Pg/AstInsertDeleteTest.lean")
+pg_ast_smoke_test(name = "pg_ast_perform_test",               entry = "Pg/AstPerformTest.lean")
+pg_ast_smoke_test(name = "pg_ast_raise_notice_test",          entry = "Pg/AstRaiseNoticeTest.lean")
+pg_ast_smoke_test(name = "pg_ast_return_query_select_test",   entry = "Pg/AstReturnQuerySelectTest.lean")
+pg_ast_smoke_test(name = "pg_ast_select_into_test",           entry = "Pg/AstSelectIntoTest.lean")
+pg_ast_smoke_test(name = "pg_ast_trigger_d_ext_test",         entry = "Pg/AstTriggerDExtTest.lean")
+pg_ast_smoke_test(name = "pg_ast_update_return_expr_test",    entry = "Pg/AstUpdateReturnExprTest.lean")
+
+# Pg.Ty extension-arm pinning tests (PgType constructors).
+lean_test(
+    name = "pg_ty_ext_test",
+    srcs = [
+        "Pg/Ty.lean",
+        "Pg/TyExtTest.lean",
+    ],
+    entry = "Pg/TyExtTest.lean",
+    visibility = ["//visibility:public"],
+)
+
+# Plpgsql JSON-reader pinning test.
+lean_test(
+    name = "plpgsql_json_reader_test",
+    srcs = [
+        "@polyglot_ast//lean:Polyglot/Sql/Ast.lean",
+        "Pg/Ty.lean",
+        "Pg/RegexAst.lean",
+        "Pg/Catalog/Oid.lean",
+        "Pg/Catalog/Tables.lean",
+        "Pg/Catalog/RegTypes.lean",
+        "Pg/Ast.lean",
+        "Pg/Stmt.lean",
+        "Pg/AstSmart.lean",
+        "Pg/Plpgsql/JsonReader.lean",
+        "Pg/Plpgsql/JsonReaderTest.lean",
+    ],
+    entry = "Pg/Plpgsql/JsonReaderTest.lean",
     visibility = ["//visibility:public"],
 )
