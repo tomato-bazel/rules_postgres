@@ -432,9 +432,6 @@
     "https://raw.githubusercontent.com/fastverk/bazel-registry-premium/main/modules/rules_kotlin/1.9.6/MODULE.bazel": "not found",
     "https://raw.githubusercontent.com/fastverk/bazel-registry-premium/main/modules/rules_lang/0.0.8/MODULE.bazel": "0ccdd9281480e12fbac636d3ea9c2cb4799acfb8f7debe7e195e338987650bf5",
     "https://raw.githubusercontent.com/fastverk/bazel-registry-premium/main/modules/rules_lang/0.0.8/source.json": "5e689576f943b1dcb11d1a434bbac783f4cf5e49093def33e6252d4d5a5cbb44",
-    "https://raw.githubusercontent.com/fastverk/bazel-registry-premium/main/modules/rules_lean/0.3.5/MODULE.bazel": "not found",
-    "https://raw.githubusercontent.com/fastverk/bazel-registry-premium/main/modules/rules_lean/0.3.7/MODULE.bazel": "not found",
-    "https://raw.githubusercontent.com/fastverk/bazel-registry-premium/main/modules/rules_lean/0.3.8/MODULE.bazel": "not found",
     "https://raw.githubusercontent.com/fastverk/bazel-registry-premium/main/modules/rules_license/0.0.3/MODULE.bazel": "not found",
     "https://raw.githubusercontent.com/fastverk/bazel-registry-premium/main/modules/rules_license/0.0.7/MODULE.bazel": "not found",
     "https://raw.githubusercontent.com/fastverk/bazel-registry-premium/main/modules/rules_license/0.0.8/MODULE.bazel": "not found",
@@ -666,10 +663,6 @@
     "https://raw.githubusercontent.com/fastverk/bazel-registry/main/modules/rules_jvm_external/6.7/MODULE.bazel": "not found",
     "https://raw.githubusercontent.com/fastverk/bazel-registry/main/modules/rules_kotlin/1.9.0/MODULE.bazel": "not found",
     "https://raw.githubusercontent.com/fastverk/bazel-registry/main/modules/rules_kotlin/1.9.6/MODULE.bazel": "not found",
-    "https://raw.githubusercontent.com/fastverk/bazel-registry/main/modules/rules_lean/0.3.5/MODULE.bazel": "b1f5ea3fd7c60053a25a6e494128abff5c15c3a751a2add213ed7861fc9de690",
-    "https://raw.githubusercontent.com/fastverk/bazel-registry/main/modules/rules_lean/0.3.7/MODULE.bazel": "558d8234371f2f8748e090adbad28c1be5056a36e934f267ac1c99cdd6da7678",
-    "https://raw.githubusercontent.com/fastverk/bazel-registry/main/modules/rules_lean/0.3.8/MODULE.bazel": "8364ce272d68b384445d3f18ebae9f57b805a82cb7198900f879dac7ddcd48d9",
-    "https://raw.githubusercontent.com/fastverk/bazel-registry/main/modules/rules_lean/0.3.8/source.json": "1f55a17f5bf3698a58d23e383a59efc428c68a620fc3f412846f00a97754adeb",
     "https://raw.githubusercontent.com/fastverk/bazel-registry/main/modules/rules_license/0.0.3/MODULE.bazel": "not found",
     "https://raw.githubusercontent.com/fastverk/bazel-registry/main/modules/rules_license/0.0.7/MODULE.bazel": "not found",
     "https://raw.githubusercontent.com/fastverk/bazel-registry/main/modules/rules_license/0.0.8/MODULE.bazel": "not found",
@@ -737,7 +730,7 @@
     "//postgres:extensions.bzl%pg": {
       "general": {
         "bzlTransitiveDigest": "FI5Y75SU2ZlWdp+qiYEFxBcNk8G8bOuKkzXs4spw6Ds=",
-        "usagesDigest": "/hvtyr2c5FG39m+PCv+8NpK0/ATjTurqU988COXWfb8=",
+        "usagesDigest": "EyL46rNYLz5ygHCAKvkHQPm0W9iVTRjvsT5MO23dGcQ=",
         "recordedInputs": [
           "REPO_MAPPING:,rules_github rules_github+"
         ],
@@ -823,7 +816,7 @@
     "@@rules_lean+//lean:lake.bzl%lake": {
       "general": {
         "bzlTransitiveDigest": "TSkwKKphDCoYLuQrznBpnrnmoMj4SwnnWW9GsydjB1o=",
-        "usagesDigest": "5RFaNaCdC3hRE/TkCF9F1E+rPsPYVr99iAcOo7BH3vA=",
+        "usagesDigest": "CMjHW15EaEBGsMAwVcwSJ4HmHcx103kRXTSVdJcxwb4=",
         "recordedInputs": [],
         "generatedRepoSpecs": {
           "rules_postgres_lake": {
