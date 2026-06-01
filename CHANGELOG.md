@@ -4,6 +4,71 @@ All notable changes to rules_postgres. The format is loosely
 [Keep a Changelog](https://keepachangelog.com/) — version headers
 mirror the published bazel-registry entries.
 
+## 0.5.3 — pgpb_to_lean_ast: C decoder closing the proto → Lean trust chain
+
+Lands the third leg of the proto → Lean trust chain
+(`narrative/proto-to-lean-design-poc.md` §7 (b)):
+
+    .sql ─sql_to_protobuf─► .pgpb ─pgpb_to_lean_ast─► .lean
+                                                         │ leanc
+                                                         ▼
+                                       Pg.Query.ParseResult value
+
+**New C tool:** `@rules_postgres//tools/pgpb_to_lean_ast:pgpb_to_lean_ast`
+
+Reads a `pg_query.ParseResult` protobuf payload (output of
+`sql_to_protobuf`), walks the unpacked top-level message via the
+protobuf-c API, and emits a Lean source file containing a
+`def parseResult : Pg.Query.ParseResult` value matching the
+Phase 2 stubbed-DDL Generated.lean encoding.
+
+For each RawStmt's Node payload, the decoder calls
+`pg_query__node__pack` to recover the sub-message's wire bytes
+and emits a `_root_.ByteArray` literal in Lean (`⟨#[0xAB, ...]⟩`).
+That matches the Phase 2 stub (`Node → ByteArray`) — consumers
+wanting deeper typed decode either pass smaller `--stub` sets at
+codegen time or run a follow-on tool on the inner byte payload.
+
+**Same trust profile as `pgpb_to_snapshot`:** hermetic C binary,
+depends only on `@libpg_query//:pg_query_pb_c`. No Python, no
+shell. ~80% structure reuse from `pgpb_to_snapshot.c` (slurp,
+unpack, top-level loop) — the difference is the emit shape
+(`ByteArray` literals per stmt rather than catalog rows).
+
+**End-to-end CI gate:** `tools/pgpb_to_lean_ast/smoke_fixture.sql`
+covers four DDL stmt kinds (SCHEMA / DOMAIN / TYPE / TABLE) and
+flows through the full chain:
+
+    smoke_fixture.sql
+        ↓ //tools:sql_to_protobuf
+    smoke_fixture.pgpb
+        ↓ //tools/pgpb_to_lean_ast:pgpb_to_lean_ast
+    SmokeFixture.lean   (Pg.Query.SmokeFixture.parseResult)
+        ↓ //lean:pg_query_decoder_smoke_test
+    Lean kernel checks the value against Pg.Query.Generated.
+
+A break at any link surfaces at the right step: malformed SQL →
+sql_to_protobuf exits non-zero; protobuf-c API drift →
+pgpb_to_lean_ast fails to compile or decode; encoding
+disagreement between pgpb_codegen and pgpb_to_lean_ast → Lean
+kernel rejects the decoder's output.
+
+**Companion tests:**
+  * `//lean:pg_query_generated_test` — hand-crafted ParseResult
+    values exercising the empty / single / mixed shapes.
+  * `//lean:pg_query_decoder_smoke_test` — the end-to-end pipeline
+    above.
+
+**Trajectory.** With the trust chain closed, the next slice can
+either:
+  (a) lift `pgpb_to_snapshot` into Lean — port the C catalog-fold
+      onto `Pg.Query.ParseResult` so the catalog projection becomes
+      kernel-checked. (Phase 4 in the design doc.)
+  (b) generate per-stmt typed surfaces by passing smaller --stub
+      sets — e.g. `--stub Node=ByteArray` becomes
+      `--stub Node=ByteArray --no-stub ColumnDef --no-stub Constraint`
+      for column-aware table parsing.
+
 ## 0.5.2 — pgpb_codegen Phase 2: --stub + --roots; DDL-aligned default
 
 The design-doc file-split strategy doesn't actually work: every

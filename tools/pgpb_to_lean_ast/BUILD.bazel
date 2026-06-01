@@ -1,0 +1,52 @@
+"""pgpb_to_lean_ast — emit Lean source values of Pg.Query.ParseResult
+from a .pgpb byte payload.
+
+The trust-chain leg per `narrative/proto-to-lean-design-poc.md` §7 (b):
+
+    .sql ─sql_to_protobuf─► .pgpb ─pgpb_to_lean_ast─► .lean
+                                                         │ leanc
+                                                         ▼
+                                       Pg.Query.ParseResult value
+
+Output imports `Pg.Query.Generated` (the Phase 2 stubbed DDL slice).
+The Lean kernel typechecks the emitted value against the generated
+structure — a malformed decoder output breaks the build at module
+load, so the decoder's correctness is gated by the same trust profile
+as the rest of the proto→Lean chain.
+
+Hermetic C binary — same toolchain as `sql_to_protobuf` and
+`pgpb_to_snapshot`. Depends only on libpg_query's vendored
+protobuf-c bindings.
+"""
+
+load("@rules_cc//cc:defs.bzl", "cc_binary")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_binary(
+    name = "pgpb_to_lean_ast",
+    srcs = ["pgpb_to_lean_ast.c"],
+    deps = ["@libpg_query//:pg_query_pb_c"],
+)
+
+# Smoke pipeline: SQL → .pgpb → .lean → typecheck. Each leg is its
+# own Bazel action so a failure surfaces at the right step.
+
+genrule(
+    name = "smoke_fixture_pgpb",
+    srcs = ["smoke_fixture.sql"],
+    outs = ["smoke_fixture.pgpb"],
+    tools = ["//tools:sql_to_protobuf"],
+    cmd = "$(location //tools:sql_to_protobuf) $< > $@",
+)
+
+genrule(
+    name = "smoke_fixture_lean",
+    srcs = [":smoke_fixture.pgpb"],
+    outs = ["SmokeFixture.lean"],
+    tools = [":pgpb_to_lean_ast"],
+    cmd = "$(location :pgpb_to_lean_ast) " +
+          "--module Pg.Query.SmokeFixture " +
+          "--output $@ " +
+          "$<",
+)

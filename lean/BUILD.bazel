@@ -219,3 +219,45 @@ lean_test(
     entry = "Pg/Plpgsql/JsonReaderTest.lean",
     visibility = ["//visibility:public"],
 )
+
+# Pg.Query.Generated typecheck — the DDL-slice stubbed surface
+# from `@rules_postgres//tools:pgpb_codegen`. GeneratedTest.lean
+# constructs three sample `ParseResult` values (empty, single,
+# mixed) of the exact same shape that
+# `@rules_postgres//tools:pgpb_to_lean_ast` produces from a
+# `.pgpb` byte payload. If this passes, any decoder output
+# also passes — the test gates the decoder + generator agreeing
+# on encoding (kernel-checked).
+lean_test(
+    name = "pg_query_generated_test",
+    srcs = [
+        "Pg/Query/Generated.lean",
+        "Pg/Query/GeneratedTest.lean",
+    ],
+    entry = "Pg/Query/GeneratedTest.lean",
+    visibility = ["//visibility:public"],
+)
+
+# End-to-end trust-chain gate:
+#
+#   tools/pgpb_to_lean_ast/smoke_fixture.sql
+#       ↓ //tools:sql_to_protobuf
+#   smoke_fixture.pgpb
+#       ↓ //tools/pgpb_to_lean_ast:pgpb_to_lean_ast
+#   SmokeFixture.lean    (Pg.Query.SmokeFixture.parseResult)
+#       ↓ lean_test
+#   Kernel-checked Pg.Query.ParseResult value
+#
+# A break at any link surfaces here: malformed SQL → sql_to_protobuf
+# fails; protobuf-c API drift → pgpb_to_lean_ast fails; encoding
+# disagreement between pgpb_codegen and pgpb_to_lean_ast →
+# Lean kernel rejects the decoder's output.
+lean_test(
+    name = "pg_query_decoder_smoke_test",
+    srcs = [
+        "Pg/Query/Generated.lean",
+        "//tools/pgpb_to_lean_ast:SmokeFixture.lean",
+    ],
+    entry = "SmokeFixture.lean",
+    visibility = ["//visibility:public"],
+)
