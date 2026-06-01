@@ -424,6 +424,184 @@ static void handle_create_function(Snapshot *s, PgQuery__CreateFunctionStmt *st)
     free_parts(parts, n);
 }
 
+/* ─── ViewStmt: CREATE VIEW <name> AS SELECT ... ────────────────────
+ *
+ * View columns are inferred from the SELECT's target list. We
+ * extract column NAMES from each ResTarget (either the explicit
+ * AS alias or the last component of a ColumnRef expression) and
+ * register attributes with `unknown` type (OID 2249 = record
+ * sentinel). The emit pipeline turns 2249 into `z.unknown()`,
+ * so downstream consumers get the right column structure with
+ * loose value types — enough to use the view; insufficient for
+ * strict per-column type checking until proper SELECT-target
+ * inference lands.
+ */
+static const char *res_target_column_name(PgQuery__ResTarget *rt) {
+    /* Explicit `AS alias` */
+    if (rt->name && rt->name[0]) return rt->name;
+    /* Bare `tbl.col` or `col` — pull the last identifier */
+    if (!rt->val) return NULL;
+    if (rt->val->node_case != PG_QUERY__NODE__NODE_COLUMN_REF) return NULL;
+    PgQuery__ColumnRef *cr = rt->val->column_ref;
+    if (cr->n_fields == 0) return NULL;
+    PgQuery__Node *last = cr->fields[cr->n_fields - 1];
+    if (last->node_case == PG_QUERY__NODE__NODE_STRING) {
+        return last->string->sval;
+    }
+    return NULL;  /* A_Star or other — skipped */
+}
+
+static void handle_view_stmt(Snapshot *s, PgQuery__ViewStmt *st) {
+    if (!st->view || !st->view->relname) return;
+    const char *schema = (st->view->schemaname && st->view->schemaname[0])
+        ? st->view->schemaname : "public";
+    const char *name = st->view->relname;
+    uint32_t ns_oid = snap_ensure_namespace(s, schema);
+
+    /* If a view by this schema.name already exists (CREATE OR REPLACE
+     * VIEW), skip — we keep the first registration. The snapshot
+     * fold is order-sensitive but idempotent on repeated declarations. */
+    for (size_t i = 0; i < s->types.len; i++) {
+        if (strcmp(s->types.data[i].schema, schema) == 0 &&
+            strcmp(s->types.data[i].typname, name) == 0) {
+            return;
+        }
+    }
+
+    uint32_t type_oid = snap_alloc_oid(s);
+    uint32_t rel_oid  = snap_alloc_oid(s);
+    TypeRow *t = TypeArr_push(&s->types);
+    t->oid = type_oid; t->schema = strdup(schema); t->typname = strdup(name);
+    t->typtype = "composite"; t->typrelid = rel_oid;
+    t->typbasetype = 0; t->typelem = 0;
+    RelRow *r = RelArr_push(&s->relations);
+    r->oid = rel_oid; r->relname = strdup(name);
+    r->relnamespace = ns_oid; r->relkind = "view"; r->reltype = type_oid;
+
+    /* The query is wrapped in a Node; expect SelectStmt. */
+    if (!st->query || st->query->node_case != PG_QUERY__NODE__NODE_SELECT_STMT)
+        return;
+    PgQuery__SelectStmt *sel = st->query->select_stmt;
+    int attnum = 0;
+    for (size_t i = 0; i < sel->n_target_list; i++) {
+        PgQuery__Node *tn = sel->target_list[i];
+        if (tn->node_case != PG_QUERY__NODE__NODE_RES_TARGET) continue;
+        const char *cn = res_target_column_name(tn->res_target);
+        if (!cn) continue;
+        attnum++;
+        AttrRow *a = AttrArr_push(&s->attributes);
+        a->attrelid = rel_oid;
+        a->attname  = strdup(cn);
+        a->atttypid = 2249;  /* unknown — emit pipeline produces z.unknown() */
+        a->attnum   = attnum;
+        a->attnotnull = 0;   /* views project nullable-by-default */
+    }
+}
+
+/* ─── AlterTableStmt: ADD/DROP COLUMN, SET/DROP NOT NULL ────────────
+ *
+ * Mutates the in-progress snapshot. Looks up the target relation by
+ * (schema, name), then applies each AlterTableCmd. Unsupported cmd
+ * kinds (ADD CONSTRAINT, RENAME, OWNER, etc.) are silently skipped —
+ * none affect codegen-relevant column structure.
+ */
+static int find_relation_by_name(const Snapshot *s,
+                                 const char *schema,
+                                 const char *name,
+                                 uint32_t *out_rel_oid) {
+    for (size_t i = 0; i < s->relations.len; i++) {
+        const RelRow *r = &s->relations.data[i];
+        const char *r_schema = NULL;
+        for (size_t j = 0; j < s->namespaces.len; j++) {
+            if (s->namespaces.data[j].oid == r->relnamespace) {
+                r_schema = s->namespaces.data[j].nspname;
+                break;
+            }
+        }
+        if (r_schema && strcmp(r_schema, schema) == 0 &&
+            strcmp(r->relname, name) == 0) {
+            *out_rel_oid = r->oid;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static AttrRow *find_attribute(Snapshot *s, uint32_t rel_oid, const char *name) {
+    for (size_t i = 0; i < s->attributes.len; i++) {
+        AttrRow *a = &s->attributes.data[i];
+        if (a->attrelid == rel_oid && strcmp(a->attname, name) == 0)
+            return a;
+    }
+    return NULL;
+}
+
+static int max_attnum_for(Snapshot *s, uint32_t rel_oid) {
+    int max = 0;
+    for (size_t i = 0; i < s->attributes.len; i++) {
+        AttrRow *a = &s->attributes.data[i];
+        if (a->attrelid == rel_oid && a->attnum > max) max = a->attnum;
+    }
+    return max;
+}
+
+static void handle_alter_table(Snapshot *s, PgQuery__AlterTableStmt *st) {
+    if (!st->relation || !st->relation->relname) return;
+    const char *schema = (st->relation->schemaname && st->relation->schemaname[0])
+        ? st->relation->schemaname : "public";
+    uint32_t rel_oid;
+    if (!find_relation_by_name(s, schema, st->relation->relname, &rel_oid))
+        return;
+
+    for (size_t i = 0; i < st->n_cmds; i++) {
+        PgQuery__Node *cn = st->cmds[i];
+        if (cn->node_case != PG_QUERY__NODE__NODE_ALTER_TABLE_CMD) continue;
+        PgQuery__AlterTableCmd *cmd = cn->alter_table_cmd;
+
+        switch (cmd->subtype) {
+            case PG_QUERY__ALTER_TABLE_TYPE__AT_AddColumn: {
+                if (!cmd->def ||
+                    cmd->def->node_case != PG_QUERY__NODE__NODE_COLUMN_DEF) break;
+                PgQuery__ColumnDef *cd = cmd->def->column_def;
+                if (!cd->colname) break;
+                int typoid = type_name_to_oid(s, cd->type_name);
+                if (typoid < 0) break;
+                AttrRow *a = AttrArr_push(&s->attributes);
+                a->attrelid = rel_oid;
+                a->attname  = strdup(cd->colname);
+                a->atttypid = (uint32_t)typoid;
+                a->attnum   = max_attnum_for(s, rel_oid) + 1;
+                a->attnotnull = column_notnull(cd);
+                break;
+            }
+            case PG_QUERY__ALTER_TABLE_TYPE__AT_DropColumn: {
+                if (!cmd->name) break;
+                /* Mark the row as removed by zeroing attrelid. The
+                 * emit loop filters by attrelid match, so a 0
+                 * attrelid never matches the dropped relation. */
+                AttrRow *a = find_attribute(s, rel_oid, cmd->name);
+                if (a) a->attrelid = 0;
+                break;
+            }
+            case PG_QUERY__ALTER_TABLE_TYPE__AT_SetNotNull: {
+                if (!cmd->name) break;
+                AttrRow *a = find_attribute(s, rel_oid, cmd->name);
+                if (a) a->attnotnull = 1;
+                break;
+            }
+            case PG_QUERY__ALTER_TABLE_TYPE__AT_DropNotNull: {
+                if (!cmd->name) break;
+                AttrRow *a = find_attribute(s, rel_oid, cmd->name);
+                if (a) a->attnotnull = 0;
+                break;
+            }
+            default:
+                /* ADD CONSTRAINT / RENAME / OWNER / etc — skipped. */
+                break;
+        }
+    }
+}
+
 static int dispatch_stmt(Snapshot *s, PgQuery__Node *node) {
     switch (node->node_case) {
         case PG_QUERY__NODE__NODE_CREATE_SCHEMA_STMT:
@@ -438,6 +616,10 @@ static int dispatch_stmt(Snapshot *s, PgQuery__Node *node) {
             handle_create_table(s, node->create_stmt); return 1;
         case PG_QUERY__NODE__NODE_CREATE_FUNCTION_STMT:
             handle_create_function(s, node->create_function_stmt); return 1;
+        case PG_QUERY__NODE__NODE_VIEW_STMT:
+            handle_view_stmt(s, node->view_stmt); return 1;
+        case PG_QUERY__NODE__NODE_ALTER_TABLE_STMT:
+            handle_alter_table(s, node->alter_table_stmt); return 1;
         default:
             return 0;
     }
@@ -468,8 +650,10 @@ static void emit_referenced_builtins(FILE *o, Snapshot *s, int *first_row) {
     uint32_t seen[64]; size_t n_seen = 0;
     for (size_t i = 0; i < s->types.len; i++)
         maybe_add(s->types.data[i].typbasetype, seen, &n_seen);
-    for (size_t i = 0; i < s->attributes.len; i++)
+    for (size_t i = 0; i < s->attributes.len; i++) {
+        if (s->attributes.data[i].attrelid == 0) continue;  /* dropped */
         maybe_add(s->attributes.data[i].atttypid, seen, &n_seen);
+    }
     for (size_t i = 0; i < s->procs.len; i++) {
         maybe_add(s->procs.data[i].prorettype, seen, &n_seen);
         for (size_t j = 0; j < s->procs.data[i].n_proargtypes; j++)
@@ -568,21 +752,25 @@ static void emit_lean(FILE *o, Snapshot *s, const char *module_name) {
         fprintf(o, "    ]\n");
     }
 
-    /* Attributes */
+    /* Attributes. Rows with attrelid==0 are the dropped marker
+     * from AlterTableStmt's AT_DropColumn — skip them so the
+     * emitted snapshot matches post-ALTER reality. */
     fprintf(o, "  attributes :=\n");
-    if (s->attributes.len == 0) {
-        fprintf(o, "    []\n");
-    } else {
+    {
+        int first = 1;
         for (size_t i = 0; i < s->attributes.len; i++) {
             AttrRow *a = &s->attributes.data[i];
-            const char *sep = i ? "    , " : "    [ ";
+            if (a->attrelid == 0) continue;
+            const char *sep = first ? "    [ " : "    , ";
             fprintf(o, "%s{ attrelid := " LE "%u" RE ", attname := \"%s\", "
                        "atttypid := " LE "%u" RE ", attnum := %d, "
                        "attnotnull := %s }\n",
                     sep, a->attrelid, a->attname, a->atttypid, a->attnum,
                     a->attnotnull ? "true" : "false");
+            first = 0;
         }
-        fprintf(o, "    ]\n");
+        if (first) fprintf(o, "    []\n");
+        else       fprintf(o, "    ]\n");
     }
 
     /* Procs */

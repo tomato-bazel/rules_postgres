@@ -4,6 +4,65 @@ All notable changes to rules_postgres. The format is loosely
 [Keep a Changelog](https://keepachangelog.com/) — version headers
 mirror the published bazel-registry entries.
 
+## 0.5.4 — pgpb_to_snapshot: ViewStmt + AlterTableStmt handlers
+
+Adds full-schema coverage for the two stmt kinds the snapshot folder
+was silently skipping that carry codegen-relevant catalog state.
+
+**ViewStmt** (`CREATE VIEW <schema>.<name> AS SELECT ...`)
+
+  * Registers a `composite` type + `view` relation row for each
+    view, using the same OID-allocation scheme as `CREATE TABLE`.
+  * Extracts column names from the SELECT's target list — explicit
+    `AS alias` first, falling back to the last component of any
+    `ColumnRef` expression.
+  * Types are emitted as `2249` (record sentinel) so the downstream
+    codegen produces `z.unknown()` per column. Full per-column
+    type inference (resolving `tbl.col` refs through the FROM
+    clause to underlying table columns) is a follow-up.
+
+**AlterTableStmt** subtypes covered:
+
+  * `AT_AddColumn`    — appends a new attribute row, attnum = max+1
+  * `AT_DropColumn`   — marks the attribute row (`attrelid := 0`)
+                        so the emit loop skips it post-fold
+  * `AT_SetNotNull`   — flips `attnotnull` to `true` on the
+                        matching attribute
+  * `AT_DropNotNull`  — flips it to `false`
+
+  Other subtypes (ADD CONSTRAINT, RENAME, OWNER, etc.) are
+  intentionally skipped — none affect column structure or types.
+
+**New helpers:**
+
+  * `find_relation_by_name(snap, schema, name)` — schema-qualified
+    relation lookup, used by AlterTableStmt to locate its target.
+  * `find_attribute(snap, rel_oid, name)` — by-name attribute
+    lookup, used by AT_DropColumn / AT_SetNotNull / AT_DropNotNull.
+  * `max_attnum_for(snap, rel_oid)` — for AT_AddColumn's new attnum.
+  * `res_target_column_name(res_target)` — extracts a SELECT
+    target's column name from either its `name` field or its
+    `ColumnRef` payload.
+
+**Measured against savvi-studio's initial_schema** (13 migration files,
+1383 stmts total):
+
+  * Before: 321 consumed (23%) — 56 user types, 46 relations,
+            268 functions.
+  * After:  338 consumed (24%) — **+15 views (Workspace,
+            HierarchyRootKeys, VDiagnosticMenu, ...) + 2 ALTERs**.
+            The savvi-db-generated TS package gains the 15 view
+            schemas (rendered as `z.object({ col: z.unknown()
+            .nullable(), ... })` placeholders).
+
+The remaining ~1045 unconsumed stmts are CommentStmt (429),
+GrantStmt (414), IndexStmt (74), CreateTrigStmt (7), DoStmt (21),
+SelectStmt (16), InsertStmt (10), CreatePolicyStmt (10),
+AlterOwnerStmt (8), VariableSetStmt (37), AlterDefaultPrivilegesStmt
+(3), DropStmt (3), TruncateStmt (2) — none of which carry catalog
+state the codegen pipeline reads. Coverage of the catalog-state-bearing
+DDL surface is now ~complete for the savvi codebase.
+
 ## 0.5.3 — pgpb_to_lean_ast: C decoder closing the proto → Lean trust chain
 
 Lands the third leg of the proto → Lean trust chain
