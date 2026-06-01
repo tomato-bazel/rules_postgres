@@ -4,6 +4,79 @@ All notable changes to rules_postgres. The format is loosely
 [Keep a Changelog](https://keepachangelog.com/) — version headers
 mirror the published bazel-registry entries.
 
+## 0.5.1 — pgpb_codegen Phase 1: proto → Lean generator (preview)
+
+Lands the Python generator for the `Pg.Ast`-from-`pg_query.proto`
+track designed in `narrative/proto-to-lean-design-poc.md` (in the
+consumer's repo).
+
+**New tool**: `@rules_postgres//tools/pgpb_codegen:pgpb_codegen.py`
+— standalone Python descriptor walker. Reads a protoc-emitted
+`FileDescriptorSet` and emits Lean source matching the proto's
+message + enum shape:
+
+  * 273 message types → `structure`s (or `inductive`s for pure-oneof
+    messages like `Node`) inside one `mutual ... end` block.
+  * 71 enum types → `inductive`s with prefix-stripped, camelCased
+    variant names. `_UNDEFINED` 0-values become `.undefined`;
+    enums without a sentinel use their first value as default.
+  * Field types use `_root_.` qualifiers (`_root_.String`,
+    `_root_.List`, `_root_.Float`, etc.) so generated structures
+    like `Pg.Query.Float` / `Pg.Query.List` (real proto messages!)
+    don't shadow the stdlib inside `namespace Pg.Query`.
+  * Reserved-word collisions (`do`, `where`, `default`, `public`,
+    etc.) get a trailing underscore.
+
+**Initial output**: `@rules_postgres//lean:Pg/Query/Generated.lean`
+— 3793 lines covering the full `pg_query.proto` surface. Committed
+as the source of truth; Phase 1c's drift gate (forthcoming) will
+re-run the generator on every CI build and byte-diff against this
+file.
+
+**Known limitation, Phase 1 → Phase 2**
+
+The whole proto's message universe is one SCC through `Node`, so
+the single-file approach uses one giant `mutual ... end`. Lean's
+elaborator can't typecheck a 273-type mutual block in any
+reasonable time even with `maxHeartbeats` bumped 8×. **The file
+parses cleanly but does not yet elaborate.**
+
+Phase 2 (queued, design doc §9.2) splits into five sub-files
+under `Pg/Query/Generated/`:
+
+  * `Primitives.lean` — String, Integer, Float, Boolean, etc.
+  * `Enums.lean`      — all 71 enums (no mutual)
+  * `Node.lean`       — `Node` oneof + Alias, RangeVar, TypeName
+  * `Expr.lean`       — expression messages
+  * `Stmt.lean`       — statement messages
+
+with carefully-sized `mutual` blocks per file. Each file
+elaborates in seconds.
+
+**Why ship Phase 1 anyway**
+
+The encoding decisions in §4 of the design doc — `_root_.` shadow
+handling, enum prefix-stripping, oneof → inductive, message →
+structure with proto3 zero-value defaults — are all validated by
+the parses-cleanly output. Phase 2's split only rearranges; it
+doesn't change shape. Committing the generator now means Phase 2
+is purely about file partitioning.
+
+**Bazel wiring deferred**
+
+`tools/pgpb_codegen/BUILD.bazel` references a `protoc` binary
+that's not in Bazel's hermetic sandbox PATH (host-only). Phase 1c
+wires `rules_proto` for a hermetic `protoc` + adds the drift gate.
+For now, regen runs as:
+
+    protoc --descriptor_set_out=/tmp/pgquery.desc \\
+        --proto_path=<libpg_query>/protobuf \\
+        <libpg_query>/protobuf/pg_query.proto
+    python3 tools/pgpb_codegen/pgpb_codegen.py \\
+        --descriptor /tmp/pgquery.desc \\
+        --output lean/Pg/Query/Generated.lean \\
+        --version 17-6.2.2
+
 ## 0.5.0 — SQL toolchain pipeline (sql_to_protobuf + pgpb_to_snapshot)
 
 Adds the rules_postgres half of the `proto_library`-shaped SQL

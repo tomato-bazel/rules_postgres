@@ -50,7 +50,7 @@ pg_sql_toolchain = rule(
         ),
         "proto_descriptor": attr.label(
             allow_single_file = [".proto"],
-            default = "@libpg_query//:pg_query.proto",
+            default = "@libpg_query//:protobuf/pg_query.proto",
             doc = "The `pg_query.proto` schema describing the parser's output.",
         ),
         "version": attr.string(
@@ -70,13 +70,13 @@ def pg_sql_catalog_library(name, deps, module_name = None, output_format = "lean
     """Catalog projection wrapper that pre-fills the postgres folder.
 
     Identical to `sql_catalog_library` but binds `folder` to
-    `@rules_postgres//tools:pgpb_to_snapshot` so consumers don't need
-    to know the dialect-specific tool name.
+    `@rules_postgres//tools/pgpb_to_snapshot:pgpb_to_snapshot` so
+    consumers don't need to know the dialect-specific tool name.
     """
     sql_catalog_library(
         name = name,
         deps = deps,
-        folder = "@rules_postgres//tools:pgpb_to_snapshot",
+        folder = "@rules_postgres//tools/pgpb_to_snapshot:pgpb_to_snapshot",
         module_name = module_name,
         output_format = output_format,
         **kwargs

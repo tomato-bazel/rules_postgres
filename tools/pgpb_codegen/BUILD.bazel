@@ -1,0 +1,32 @@
+"""pgpb_codegen — proto → Lean codegen for libpg_query's pg_query.proto.
+
+Phase 1 (this commit): standalone Python script. No Bazel-driven
+regen yet — Bazel's hermetic sandbox doesn't pick up a host
+`protoc` and `rules_proto` integration is Phase 1c work.
+
+Manual regen flow:
+
+    protoc --descriptor_set_out=/tmp/pgquery.desc \\
+        --proto_path=<libpg_query>/protobuf \\
+        <libpg_query>/protobuf/pg_query.proto
+    python3 $(execpath pgpb_codegen.py) \\
+        --descriptor /tmp/pgquery.desc \\
+        --output ../../lean/Pg/Query/Generated.lean \\
+        --version 17-6.2.2
+
+Phase 1c wires:
+
+  genrule(:pgquery_descriptor)  via rules_proto's hermetic protoc
+  genrule(:pg_query_lean_regen) via py_binary(:pgpb_codegen)
+  sh_test(:pg_query_lean_drift_test) via diff_test.sh
+
+See `narrative/proto-to-lean-design-poc.md` (in the consumer's
+repo) for the full sequencing.
+"""
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "pgpb_codegen.py",
+    "drift_test.sh",
+])
