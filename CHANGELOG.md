@@ -4,6 +4,94 @@ All notable changes to rules_postgres. The format is loosely
 [Keep a Changelog](https://keepachangelog.com/) — version headers
 mirror the published bazel-registry entries.
 
+## 0.6.0 — Pg.Catalog.Fold: kernel-checked catalog projection (Phase 0)
+
+The fourth and load-bearing leg of the proto → Lean trust chain.
+Catalog projection moves from "trust the C tool" to
+"kernel-checked Lean fold."
+
+Previously:
+
+    .pgpb ─pgpb_to_snapshot.c─► Snapshot.lean      (trust C)
+
+Now (in parallel; same input):
+
+    .pgpb ─pgpb_to_lean_ast --typed─► TopParseResult.lean
+                                          │
+                                          ▼  Lean kernel
+                              Snapshot.ofTopParseResult
+                                          │
+                                          ▼
+                                     Snapshot value
+                                  (kernel-typechecked)
+
+NEW LEAN MODULES
+
+  `lean/Pg/Query/Top.lean`
+    Hand-written wrapper layer that bridges the C decoder and the
+    Lean fold. Defines:
+      * `QualifiedName` — pre-decoded `[schema.]name`
+      * `TopCreateSchemaStmt`, `TopCreateEnumStmt` — Phase 0 variants
+      * `TopStmt` inductive — discriminator with `.other ByteArray`
+        catchall
+      * `TopRawStmt`, `TopParseResult` — mirror Pg.Query.RawStmt /
+        Pg.Query.ParseResult one-for-one (modulo the payload type)
+
+  `lean/Pg/Catalog/Fold.lean`
+    `FoldState` carries snapshot + nextOid counter. Helpers:
+      * `FoldState.alloc` / `alloc2` — OID allocator
+      * `FoldState.empty` — seeded with pg_catalog (11) + public (2200)
+      * `ensureNamespace` — name lookup with auto-allocate
+      * `foldCreateSchema`, `foldCreateEnum` — Phase 0 handlers
+      * `foldTopStmt` — top-level dispatch
+      * `Snapshot.ofTopParseResult` — the user-facing entry
+
+  `lean/Pg/Catalog/FoldTest.lean`
+    Hand-crafted unit tests via `native_decide`:
+      * one_schema, dup_schema (dedupe), one_enum, public_enum
+        (unqualified → public), opaque_only (.other stays inert)
+
+  `lean/Pg/Catalog/FoldPipelineTest.lean`
+    End-to-end: smoke_fixture.sql → .pgpb → typed .lean → fold →
+    Snapshot. Asserts the namespace count + presence of the
+    test_smoke namespace via `native_decide`.
+
+NEW C-DECODER FLAG
+
+  `tools/pgpb_to_lean_ast --typed` switches output mode:
+    * Default: `Pg.Query.RawStmt` with `stmt : ByteArray`
+    * Typed:   `Pg.Query.Top.TopRawStmt` with `stmt : TopStmt`
+
+  Typed dispatch handles:
+    * `CreateSchemaStmt` → `.createSchemaStmt { schemaname, ifNotExists }`
+    * `CreateEnumStmt`   → `.createEnumStmt { qualName, labels }`
+    * everything else    → `.other ⟨#[bytes]⟩` (the pre-Phase-0 mode)
+
+  Pre-decoding lives in C (cheap), so the Lean side stays simple
+  and proof-discipline-friendly.
+
+PHASE COVERAGE TODAY
+
+  Phase 0 (this release):  CreateSchemaStmt, CreateEnumStmt
+  Phase 1 (planned):       CreateDomainStmt (qualName + base typeName)
+  Phase 2 (planned):       CompositeTypeStmt, CreateStmt
+                           (need ColumnDef pre-decoding)
+  Phase 3 (planned):       CreateFunctionStmt (parameters + return)
+  Phase 4 (planned):       ViewStmt (target list + FROM clause)
+  Phase 5 (planned):       AlterTableStmt
+  Phase 6 (planned):       byte-equivalence diff_test
+                           pgpb_to_snapshot.c ≡ Snapshot.ofTopParseResult
+                           — when green, the C catalog folder retires.
+
+WHY THIS RELEASE BUMPS THE MINOR VERSION
+
+The previous 0.5.x line added pieces to the proto → Lean toolchain.
+0.6.0 changes the trust profile: the catalog projection's
+correctness now depends on `Pg.Catalog.Fold`'s logic being kernel-
+typechecked rather than on `pgpb_to_snapshot.c` being correct. Even
+though Phase 0 only covers two stmt kinds, the trust-shift contract
+is permanent — consumers depending on Snapshot semantics should know.
+
 ## 0.5.5 — pgpb_to_snapshot: view column type inference
 
 Lifts the 15 view schemas in savvi-studio's initial schema from

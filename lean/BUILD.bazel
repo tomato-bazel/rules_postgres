@@ -261,3 +261,51 @@ lean_test(
     entry = "SmokeFixture.lean",
     visibility = ["//visibility:public"],
 )
+
+# Pg.Catalog.Fold — kernel-checked catalog projection over typed
+# top-level DDL stmts. Phase 0 covers CreateSchemaStmt +
+# CreateEnumStmt; FoldTest exercises both via inline TopParseResult
+# values + native_decide assertions on the resulting Snapshot.
+#
+# This is the proof-tier ladder leg: the catalog projection moves
+# from "trust the C tool" to "kernel-checked" once enough handlers
+# accumulate to match pgpb_to_snapshot.c's coverage.
+lean_test(
+    name = "pg_catalog_fold_test",
+    srcs = [
+        "Pg/Catalog/Oid.lean",
+        "Pg/Catalog/Tables.lean",
+        "Pg/Catalog/RegTypes.lean",
+        "Pg/Catalog/Snapshot.lean",
+        "Pg/Query/Top.lean",
+        "Pg/Catalog/Fold.lean",
+        "Pg/Catalog/FoldTest.lean",
+    ],
+    entry = "Pg/Catalog/FoldTest.lean",
+    visibility = ["//visibility:public"],
+)
+
+# End-to-end fold pipeline: .sql → .pgpb → typed .lean → fold →
+# Snapshot. Consumes the same smoke_fixture as
+# pg_query_decoder_smoke_test (which used opaque ByteArray); this
+# variant takes the typed dispatch and runs it through the kernel-
+# checked fold.
+#
+# Phase 0 asserts on the namespace count (CREATE SCHEMA is the only
+# fully-typed stmt in the fixture); Phase 1+ asserts tighten as the
+# fold's coverage grows to match pgpb_to_snapshot.c.
+lean_test(
+    name = "pg_catalog_fold_pipeline_test",
+    srcs = [
+        "Pg/Catalog/Oid.lean",
+        "Pg/Catalog/Tables.lean",
+        "Pg/Catalog/RegTypes.lean",
+        "Pg/Catalog/Snapshot.lean",
+        "Pg/Query/Top.lean",
+        "Pg/Catalog/Fold.lean",
+        "//tools/pgpb_to_lean_ast:SmokeFixtureTyped.lean",
+        "Pg/Catalog/FoldPipelineTest.lean",
+    ],
+    entry = "Pg/Catalog/FoldPipelineTest.lean",
+    visibility = ["//visibility:public"],
+)

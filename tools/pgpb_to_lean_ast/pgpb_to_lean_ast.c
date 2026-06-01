@@ -84,43 +84,142 @@ static void emit_bytearray_literal(FILE *o,
     fputs("]\xe2\x9f\xa9 : _root_.ByteArray)", o);
 }
 
+/* ─── Typed dispatch helpers ────────────────────────────────────── */
+
+/* Extract the string `sval` field from a Node whose payload is a
+ * String message. Returns NULL for non-String payloads. */
+static const char *node_string(PgQuery__Node *n) {
+    if (!n || n->node_case != PG_QUERY__NODE__NODE_STRING) return NULL;
+    return n->string->sval;
+}
+
+/* Emit a Lean string literal with backslash-escaped quotes. */
+static void emit_string_literal(FILE *o, const char *s) {
+    fputc('"', o);
+    for (const char *p = s; *p; p++) {
+        if (*p == '"' || *p == '\\') fputc('\\', o);
+        fputc(*p, o);
+    }
+    fputc('"', o);
+}
+
+/* Emit a `Pg.Query.Top.QualifiedName` value from a proto qualified-name
+ * Node list (e.g. `["ids", "key_type"]`). */
+static void emit_qualified_name(FILE *o,
+                                PgQuery__Node **names, size_t n_names) {
+    fputs("{ schema := ", o);
+    if (n_names >= 2) {
+        const char *schema = node_string(names[n_names - 2]);
+        if (schema) {
+            fputs("some ", o);
+            emit_string_literal(o, schema);
+        } else {
+            fputs("none", o);
+        }
+    } else {
+        fputs("none", o);
+    }
+    fputs(", name := ", o);
+    const char *name = n_names >= 1 ? node_string(names[n_names - 1]) : NULL;
+    emit_string_literal(o, name ? name : "");
+    fputs(" }", o);
+}
+
+/* Typed emission for a top-level Node. Returns 1 if recognized
+ * (emitted a `.<variant>` form), 0 if the caller should fall back
+ * to `.other ⟨#[bytes]⟩`. */
+static int emit_typed_top(FILE *o, PgQuery__Node *node) {
+    if (!node) return 0;
+    switch (node->node_case) {
+        case PG_QUERY__NODE__NODE_CREATE_SCHEMA_STMT: {
+            PgQuery__CreateSchemaStmt *st = node->create_schema_stmt;
+            fputs(".createSchemaStmt { schemaname := ", o);
+            emit_string_literal(o, st->schemaname ? st->schemaname : "");
+            fprintf(o, ", ifNotExists := %s }",
+                    st->if_not_exists ? "true" : "false");
+            return 1;
+        }
+        case PG_QUERY__NODE__NODE_CREATE_ENUM_STMT: {
+            PgQuery__CreateEnumStmt *st = node->create_enum_stmt;
+            fputs(".createEnumStmt { qualName := ", o);
+            emit_qualified_name(o, st->type_name, st->n_type_name);
+            fputs(", labels := [", o);
+            int first = 1;
+            for (size_t i = 0; i < st->n_vals; i++) {
+                const char *v = node_string(st->vals[i]);
+                if (!v) continue;
+                if (!first) fputs(", ", o);
+                emit_string_literal(o, v);
+                first = 0;
+            }
+            fputs("] }", o);
+            return 1;
+        }
+        default:
+            return 0;
+    }
+}
+
 /* ─── ParseResult emission ──────────────────────────────────────── */
 
-static void emit_raw_stmt(FILE *o, const PgQuery__RawStmt *rs) {
-    /* Re-pack the Node sub-message back to bytes. The unpacked
-     * PgQuery__Node sits in memory; protobuf-c's pg_query__node__pack
-     * serializes it to the buffer we provide. */
-    fputs("    { stmt := ", o);
-    if (!rs->stmt) {
+/* Emit a Node payload as an opaque ByteArray (the default mode). */
+static void emit_node_as_bytes(FILE *o, PgQuery__Node *n) {
+    if (!n) {
         fputs("_root_.ByteArray.empty", o);
-    } else {
-        size_t need = pg_query__node__get_packed_size(rs->stmt);
-        unsigned char *buf = (unsigned char *)malloc(need);
-        if (!buf) {
-            fputs("_root_.ByteArray.empty /- ENOMEM during pack -/", o);
-        } else {
-            size_t got = pg_query__node__pack(rs->stmt, buf);
-            emit_bytearray_literal(o, buf, got);
-            free(buf);
+        return;
+    }
+    size_t need = pg_query__node__get_packed_size(n);
+    unsigned char *buf = (unsigned char *)malloc(need);
+    if (!buf) {
+        fputs("_root_.ByteArray.empty /- ENOMEM during pack -/", o);
+        return;
+    }
+    size_t got = pg_query__node__pack(n, buf);
+    emit_bytearray_literal(o, buf, got);
+    free(buf);
+}
+
+static void emit_raw_stmt(FILE *o, const PgQuery__RawStmt *rs, int typed) {
+    /* In default mode, emit `Pg.Query.RawStmt` with `stmt : ByteArray`.
+     * In --typed mode, emit `Pg.Query.Top.TopRawStmt` with `stmt : TopStmt`. */
+    fputs("    { stmt := ", o);
+    if (typed) {
+        if (!rs->stmt || !emit_typed_top(o, rs->stmt)) {
+            /* Unrecognized stmt kind — wrap the bytes in .other. */
+            fputs(".other ", o);
+            emit_node_as_bytes(o, rs->stmt);
         }
+    } else {
+        emit_node_as_bytes(o, rs->stmt);
     }
     fprintf(o, ",\n      stmtLocation := %d,\n      stmtLen := %d }",
             rs->stmt_location, rs->stmt_len);
 }
 
 static void emit_parse_result(FILE *o, const PgQuery__ParseResult *pr,
-                              const char *module_name) {
+                              const char *module_name,
+                              int typed) {
     fprintf(o, "/- Auto-generated by @rules_postgres//tools:pgpb_to_lean_ast.\n"
                "   DO NOT EDIT BY HAND \xe2\x80\x94 regenerate from a .pgpb input. -/\n\n");
-    fprintf(o, "import Pg.Query.Generated\n\n");
-    fprintf(o, "namespace %s\n\n", module_name);
-    fprintf(o, "open Pg.Query\n\n");
-
-    fprintf(o, "/-- `ParseResult` decoded from the input .pgpb bytes.\n"
-               "    The Lean kernel typechecks this value against the\n"
-               "    structure generated by `pgpb_codegen` \xe2\x80\x94 a malformed\n"
-               "    decoder output breaks the build at module load. -/\n");
-    fprintf(o, "def parseResult : ParseResult where\n");
+    if (typed) {
+        fprintf(o, "import Pg.Query.Top\n\n");
+        fprintf(o, "namespace %s\n\n", module_name);
+        fprintf(o, "open Pg.Query.Top\n\n");
+        fprintf(o, "/-- `TopParseResult` decoded from the input .pgpb bytes.\n"
+                   "    The kernel typechecks each TopStmt variant against\n"
+                   "    `Pg.Query.Top`; the catalog fold (`Pg.Catalog.Fold`)\n"
+                   "    consumes this value to produce a `Pg.Catalog.Snapshot`. -/\n");
+        fprintf(o, "def parseResult : TopParseResult where\n");
+    } else {
+        fprintf(o, "import Pg.Query.Generated\n\n");
+        fprintf(o, "namespace %s\n\n", module_name);
+        fprintf(o, "open Pg.Query\n\n");
+        fprintf(o, "/-- `ParseResult` decoded from the input .pgpb bytes.\n"
+                   "    The Lean kernel typechecks this value against the\n"
+                   "    structure generated by `pgpb_codegen` \xe2\x80\x94 a malformed\n"
+                   "    decoder output breaks the build at module load. -/\n");
+        fprintf(o, "def parseResult : ParseResult where\n");
+    }
     fprintf(o, "  version := %d\n", pr->version);
 
     if (pr->n_stmts == 0) {
@@ -128,7 +227,7 @@ static void emit_parse_result(FILE *o, const PgQuery__ParseResult *pr,
     } else {
         fprintf(o, "  stmts   :=\n  [\n");
         for (size_t i = 0; i < pr->n_stmts; i++) {
-            emit_raw_stmt(o, pr->stmts[i]);
+            emit_raw_stmt(o, pr->stmts[i], typed);
             if (i + 1 < pr->n_stmts) fputs(",\n", o);
             else fputs("\n", o);
         }
@@ -144,12 +243,15 @@ int main(int argc, char **argv) {
     const char *module = NULL;
     const char *output = NULL;
     const char *input = NULL;
+    int typed = 0;
     int argi = 1;
     while (argi < argc) {
         if (strcmp(argv[argi], "--module") == 0 && argi + 1 < argc) {
             module = argv[++argi];
         } else if (strcmp(argv[argi], "--output") == 0 && argi + 1 < argc) {
             output = argv[++argi];
+        } else if (strcmp(argv[argi], "--typed") == 0) {
+            typed = 1;
         } else if (argv[argi][0] != '-') {
             input = argv[argi];
         } else {
@@ -160,7 +262,7 @@ int main(int argc, char **argv) {
     }
     if (!module || !output || !input) {
         fprintf(stderr, "usage: pgpb_to_lean_ast --module <NAME> "
-                        "--output <FILE> <input.pgpb>\n");
+                        "--output <FILE> [--typed] <input.pgpb>\n");
         return 1;
     }
 
@@ -183,7 +285,7 @@ int main(int argc, char **argv) {
         return 2;
     }
 
-    emit_parse_result(out, pr, module);
+    emit_parse_result(out, pr, module, typed);
     fclose(out);
     fprintf(stderr, "  %s: %zu stmts \xe2\x86\x92 %s\n",
             input, pr->n_stmts, output);

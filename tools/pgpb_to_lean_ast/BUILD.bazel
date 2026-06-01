@@ -50,3 +50,19 @@ genrule(
           "--output $@ " +
           "$<",
 )
+
+# Typed variant: emits a `Pg.Query.Top.TopParseResult` value. The
+# downstream `pg_catalog_fold_pipeline_test` consumes this through
+# `Pg.Catalog.Fold` to produce a `Snapshot` value — kernel-checked
+# end-to-end.
+genrule(
+    name = "smoke_fixture_typed_lean",
+    srcs = [":smoke_fixture.pgpb"],
+    outs = ["SmokeFixtureTyped.lean"],
+    tools = [":pgpb_to_lean_ast"],
+    cmd = "$(location :pgpb_to_lean_ast) " +
+          "--typed " +
+          "--module SmokeFixtureTyped " +
+          "--output $@ " +
+          "$<",
+)
