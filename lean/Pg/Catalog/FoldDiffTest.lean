@@ -45,9 +45,12 @@ namespace Pg.Catalog.FoldDiffTest
 
 open Pg.Catalog
 
-/-- The kernel-checked snapshot produced by the Lean fold. -/
+/-- The kernel-checked snapshot produced by the Lean fold, with
+    Phase 7's builtins-augmentation pass applied so the types list
+    byte-matches what `pgpb_to_snapshot.c` emits (referenced
+    pg_catalog builtin rows prepended). -/
 def leanFolded : Snapshot :=
-  Snapshot.ofTopParseResult SmokeFixtureTyped.parseResult
+  Snapshot.ofTopParseResultAugmented SmokeFixtureTyped.parseResult
 
 /-- The C tool's snapshot — what `pgpb_to_snapshot` writes today. -/
 def cFolded : Snapshot := SmokeFixtureC.snapshot
@@ -66,20 +69,19 @@ example :
     leanFolded.namespaces.map nsKey = cFolded.namespaces.map nsKey := by
   native_decide
 
-/-! ### User types (OID ≥ 16384)
+/-! ### Types — full byte-equivalence
 
-The fold doesn't emit referenced builtin rows (yet), so we filter
-the C tool's output to the user-allocated range and compare. -/
+Phase 7 added `Snapshot.augmentBuiltins`, which prepends referenced
+`pg_catalog` builtin rows to the user types in the same order the
+C tool emits. After augmentation the two lists MUST match
+end-to-end — no filtering. -/
 
 /-- (oid, name, namespace_oid, typtype, typbasetype, typrelid). -/
 def typKey (t : PgType) : Nat × String × Nat × TypType × Nat × Nat :=
   (t.oid.raw, t.typname, t.typnamespace.raw, t.typtype,
    t.typbasetype.raw, t.typrelid.raw)
 
-def userTypes (s : Snapshot) : List (Nat × String × Nat × TypType × Nat × Nat) :=
-  (s.types.filter (fun t => t.oid.raw >= 16384)).map typKey
-
-example : userTypes leanFolded = userTypes cFolded := by native_decide
+example : leanFolded.types.map typKey = cFolded.types.map typKey := by native_decide
 
 /-! ### Relations
 

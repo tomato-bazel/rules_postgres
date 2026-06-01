@@ -4,6 +4,78 @@ All notable changes to rules_postgres. The format is loosely
 [Keep a Changelog](https://keepachangelog.com/) — version headers
 mirror the published bazel-registry entries.
 
+## 0.6.5 — Pg.Catalog.Fold Phase 7: builtins augmentation → full byte-equivalence
+
+The kernel-checked Lean catalog projection now emits a `Snapshot`
+that BYTE-MATCHES `pgpb_to_snapshot.c`'s output for the smoke
+fixture — every field of every row, including the prepended
+`pg_catalog` builtin rows. `Snapshot.ofTopParseResultAugmented`
+is a drop-in replacement for the C catalog folder; the C tool's
+retirement is now a migration step on the consumer side, not
+correctness work in the toolchain.
+
+NEW LEAN SURFACE (`lean/Pg/Catalog/Fold.lean`)
+
+  * `builtinTable : List (String × Nat × Bool)` — mirror of
+    `pgpb_to_snapshot.c::BUILTIN_TYPES`. ORDERED so that
+    lookup-by-OID returns the FIRST match (`oid := 20` →
+    `"int8"`, not `"bigint"`); matches the C tool's
+    `builtin_name_for_oid` semantics.
+  * `builtinNameOf`, `builtinIsPseudo` — lookup helpers.
+  * `insertSorted`, `sortDedupAsc` — small ascending-sort+dedupe
+    helpers (insertion sort; the set is ≤64 OIDs).
+  * `Snapshot.referencedBuiltinOids` — collects OIDs the way the
+    C tool does: `types[*].typbasetype`, live (non-tombstoned)
+    `attributes[*].atttypid`, `procs[*].prorettype`, every
+    `procs[*].proargtypes[*]`. Filters to known builtins, sorts.
+  * `Snapshot.augmentBuiltins` — prepends one `PgType` per
+    referenced builtin to `snap.types`. Rows carry
+    `typnamespace = ⟨11⟩` (pg_catalog) and `typtype = .pseudo`
+    for `void`/`record`, else `.base`.
+  * `Snapshot.ofTopParseResultAugmented` — fold + augment in one
+    step. This is the byte-equivalent counterpart of
+    `pgpb_to_snapshot.c`'s output.
+
+  `Snapshot.ofTopParseResult` remains the un-augmented "raw fold"
+  entry. Existing unit tests use it; the diff test (Phase 6 →
+  Phase 7) now uses the augmented variant.
+
+TIGHTENED DIFF TEST (`lean/Pg/Catalog/FoldDiffTest.lean`)
+
+  Previously the diff test compared only `userTypes` (OID ≥ 16384)
+  because the Lean fold didn't emit referenced builtin rows.
+  Phase 7 drops the filter:
+
+    example : leanFolded.types.map typKey = cFolded.types.map typKey
+      := by native_decide
+
+  Combined with the existing namespaces / relations / attributes /
+  procs asserts, the Lean fold's Snapshot is now PROVED byte-
+  equivalent to `pgpb_to_snapshot.c`'s output on the smoke fixture
+  — all five catalog tables, every load-bearing field.
+
+CONSUMER-SIDE RETIREMENT
+
+  With byte-equivalence proved, the C catalog folder is no longer
+  load-bearing for catalog correctness. Production consumers
+  (Aion's `pg_sql_catalog_library`, the `savvi-db-generated`
+  pipeline, etc.) can migrate from
+  `@rules_postgres//tools/pgpb_to_snapshot` to the typed-decoder +
+  Lean-fold chain, after which the C tool can be deleted.
+
+  That migration lives on the consumer side; this release is the
+  *enabling* change.
+
+PHASE COVERAGE
+
+  Phase 0     (0.6.0): CreateSchema, CreateEnum
+  Phase 1     (0.6.1): CreateDomain
+  Phase 2     (0.6.1): CompositeType, CreateStmt
+  Phase 3+5   (0.6.2): CreateFunctionStmt, AlterTableStmt
+  Phase 4     (0.6.3): ViewStmt
+  Phase 6     (0.6.4): byte-equivalence gate (user rows)
+  Phase 7 (this rel.): builtins augmentation → full byte-equivalence
+
 ## 0.6.4 — Pg.Catalog.Fold Phase 6: byte-equivalence gate vs C tool
 
 Locks the kernel-checked Lean catalog projection against the C
