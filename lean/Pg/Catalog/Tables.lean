@@ -128,13 +128,31 @@ deriving Repr
 
 /-- A row of `pg_type`. For composite types, `typrelid` points back
     to the pg_class row whose `reltype` equals this type's oid; for
-    non-composite types, `typrelid` is `Oid.invalid .relation`. -/
+    non-composite types, `typrelid` is `Oid.invalid .relation`.
+
+    `typbasetype` is the underlying type for DOMAIN rows
+    (`typtype = .domain`) — the type the domain wraps. For all
+    other rows it is `Oid.invalid .type`.
+
+    `typelem` is the element type for ARRAY rows — postgres
+    encodes arrays as `typtype = .base` plus
+    `typcategory = 'A'` plus a non-invalid `typelem`. For all
+    non-array rows it is `Oid.invalid .type`. (`typcategory`
+    itself is not yet modelled; downstream code uses
+    `typelem != Oid.invalid .type` as the array discriminator
+    until `typcategory` lands.)
+
+    Both fields default to `Oid.invalid .type` so existing
+    `PgType` literal sites compile unchanged; consumers wanting
+    the new precision populate them explicitly. -/
 structure PgType where
   oid           : Oid .type
   typname       : String
   typnamespace  : Oid .namespace
   typtype       : TypType
   typrelid      : Oid .relation := Oid.invalid .relation
+  typbasetype   : Oid .type     := Oid.invalid .type
+  typelem       : Oid .type     := Oid.invalid .type
 deriving Repr
 
 /-- A row of `pg_proc`. `prosecdef = true` iff the function was
