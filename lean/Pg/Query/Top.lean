@@ -121,6 +121,39 @@ structure TopCreateFunctionStmt where
   returnType   : TypeRef
   returnSetof  : Bool := false
 
+/-- A single FROM-clause entry: a base relation with an alias. -/
+structure FromEntry where
+  alias  : String   -- what the SELECT refers to it as (`relname` if no AS)
+  schema : String   -- underlying schema (always concrete — C decoder
+                    -- defaults missing schemas to "public")
+  name   : String   -- underlying relation name
+
+/-- A single SELECT target expression — what the Lean fold needs to
+    type a view column.
+
+    * `columnRef tbl col` — references `tbl.col` (typed via FROM
+                            alias lookup) or `col` (unqualified;
+                            first-match across FROM relations).
+    * `unknownExpr`       — function call / CASE / cast / subquery /
+                            anything else. The fold uses the OID
+                            sentinel `2249` (record) → `z.unknown()`. -/
+inductive ViewTargetExpr where
+  | columnRef   : (table : Option String) → (col : String) → ViewTargetExpr
+  | unknownExpr : ViewTargetExpr
+
+/-- A single column in the view's projected schema. -/
+structure ViewTarget where
+  /-- Column name as it appears in the view's column list (explicit
+      `AS alias` if set, else the trailing ColumnRef identifier). -/
+  outputName : String
+  expr       : ViewTargetExpr
+
+/-- `CREATE VIEW <qualName> AS SELECT ... FROM ...`. -/
+structure TopViewStmt where
+  qualName : QualifiedName
+  fromList : List FromEntry := []
+  targets  : List ViewTarget := []
+
 /-- The codegen-relevant `AlterTableCmd` subtypes. Other subtypes
     (ADD CONSTRAINT, RENAME, OWNER, …) collapse to `.skip` and the
     fold leaves the snapshot unchanged. -/
@@ -149,6 +182,7 @@ inductive TopStmt where
   | compositeTypeStmt  : TopCompositeTypeStmt  → TopStmt
   | createStmt         : TopCreateStmt         → TopStmt
   | createFunctionStmt : TopCreateFunctionStmt → TopStmt
+  | viewStmt           : TopViewStmt           → TopStmt
   | alterTableStmt     : TopAlterTableStmt     → TopStmt
   | other              : ByteArray             → TopStmt
 deriving Inhabited  -- ByteArray has no Repr; skip the derive

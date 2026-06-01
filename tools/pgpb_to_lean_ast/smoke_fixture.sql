@@ -35,3 +35,13 @@ $$;
 
 ALTER TABLE test_smoke.locations ADD COLUMN created_at TIMESTAMPTZ NOT NULL;
 ALTER TABLE test_smoke.locations ALTER COLUMN name DROP NOT NULL;
+
+-- Phase 4: exercise three target-expr shapes — qualified ColumnRef,
+-- bare ColumnRef, and a non-ColumnRef expression that the fold
+-- collapses to z.unknown (OID 2249 = record).
+CREATE OR REPLACE VIEW test_smoke.location_summary AS
+SELECT
+    l.id,                                    -- qualified ColumnRef → bigint
+    name,                                    -- bare ColumnRef     → identifier (domain over text)
+    EXTRACT(epoch FROM created_at) AS epoch  -- function call      → unknown (2249)
+FROM test_smoke.locations l;

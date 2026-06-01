@@ -4,6 +4,93 @@ All notable changes to rules_postgres. The format is loosely
 [Keep a Changelog](https://keepachangelog.com/) — version headers
 mirror the published bazel-registry entries.
 
+## 0.6.3 — Pg.Catalog.Fold Phase 4: views with column type inference
+
+The last structural stmt kind. All seven DDL phases (0–5) now land
+catalog rows in the Lean fold; what remains is Phase 6's byte-
+equivalence diff against `pgpb_to_snapshot.c` (after which the C
+folder retires).
+
+NEW TYPED SHAPES (`lean/Pg/Query/Top.lean`)
+
+  * `FromEntry { alias, schema, name }` — one base relation in the
+    SELECT's FROM clause, post-C-side schema-defaulting (missing
+    schemas become "public" in C, so the Lean fold never has to
+    guess).
+  * `ViewTargetExpr` inductive — `.columnRef (table : Option String) col`
+    for resolvable refs; `.unknownExpr` for anything else (function
+    call / CASE / cast / subquery / `*`).
+  * `ViewTarget { outputName, expr }` — one column in the view's
+    projected schema.
+  * `TopViewStmt { qualName, fromList, targets }`.
+
+NEW FOLD HANDLER (`lean/Pg/Catalog/Fold.lean`)
+
+  * `fromMapLookup` — alias → FromEntry.
+  * `resolveQualifiedColumn` — `tbl.col` through the FROM map +
+    snapshot. Walks namespaces → relations → attributes; returns
+    `none` if any link is missing.
+  * `resolveBareColumn` — bare `col`; `findSome?` across FROM
+    entries (first match wins — postgres's own disambiguation).
+  * `resolveViewTarget` — dispatches the two `ViewTargetExpr`
+    constructors; falls back to OID `2249` (record) on miss.
+    Matches `pgpb_to_snapshot.c`'s post-0.5.5 view-type
+    inference behavior 1:1.
+  * `foldViewStmt` — allocates `(typOid, relOid)`, stages
+    `PgType` (composite) + `PgClass` (relkind = .view), then
+    folds each `ViewTarget` into a `PgAttribute` row with the
+    resolved OID.
+
+C DECODER (`tools/pgpb_to_lean_ast`)
+
+  * `emit_from_entries` — recursive walker mirroring
+    `pgpb_to_snapshot.c::from_node_collect`. RangeVar → one
+    FromEntry with alias defaulted to relname; JoinExpr →
+    recurse into larg+rarg; subselects/function-call sources
+    skipped.
+  * `emit_view_target_expr` — `ColumnRef` → `.columnRef`;
+    everything else (including A_Star wildcards) → `.unknownExpr`.
+  * `view_target_output_name` — explicit `AS alias` else trailing
+    ColumnRef identifier.
+  * New `ViewStmt` dispatch arm builds `{qualName, fromList,
+    targets}` from the wrapped SelectStmt.
+
+EXTENDED SMOKE FIXTURE
+
+  `tools/pgpb_to_lean_ast/smoke_fixture.sql` gains:
+
+    CREATE OR REPLACE VIEW test_smoke.location_summary AS
+    SELECT
+        l.id,                                    -- qualified ColumnRef
+        name,                                    -- bare ColumnRef
+        EXTRACT(epoch FROM created_at) AS epoch  -- function call
+    FROM test_smoke.locations l;
+
+  `FoldPipelineTest.lean` now asserts:
+
+    * 4 types, 3 relations (the +1 each is the view), 9 attributes
+      (3 view columns + 6 prior).
+    * `location_summary.relkind = .view`.
+    * `location_summary.id.atttypid = 20` (bigint, via qualified
+      FROM-alias lookup).
+    * `location_summary.name.atttypid ≡ identifier.oid` (bare ref
+      resolved via `resolveBareColumn`'s snapshot walk; the
+      identifier domain's user-allocated OID round-trips).
+    * `location_summary.epoch.atttypid = 2249` (record sentinel
+      for the EXTRACT function call).
+
+PHASE COVERAGE
+
+  Phase 0   (0.6.0):       CreateSchemaStmt, CreateEnumStmt
+  Phase 1   (0.6.1):       CreateDomainStmt
+  Phase 2   (0.6.1):       CompositeTypeStmt, CreateStmt
+  Phase 3+5 (0.6.2):       CreateFunctionStmt, AlterTableStmt
+  Phase 4   (this release): ViewStmt
+  Phase 6   (planned):     byte-equivalence diff_test vs
+                           pgpb_to_snapshot.c. When green, the
+                           C catalog folder retires — only the
+                           Lean fold runs in CI from then on.
+
 ## 0.6.2 — Pg.Catalog.Fold Phase 3+5: functions + table alterations
 
 Adds the two remaining structural stmt kinds. ViewStmt (Phase 4)

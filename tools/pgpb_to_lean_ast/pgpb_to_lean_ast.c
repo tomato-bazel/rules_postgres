@@ -258,6 +258,88 @@ static void emit_column_def_list(FILE *o, PgQuery__Node **nodes, size_t n) {
     fputs("]", o);
 }
 
+/* ─── ViewStmt support ──────────────────────────────────────────────
+ *
+ * Emit the SELECT's target list as `ViewTarget` values + its FROM
+ * clause as `FromEntry` values. The Lean fold (`foldViewStmt`) does
+ * the alias lookup + per-column type resolution against the
+ * in-progress snapshot — same logic pgpb_to_snapshot.c runs in C. */
+
+/* Walk a FROM-clause Node, emitting `FromEntry` payloads as a side
+ * effect. The caller already opened a `[` and tracks whether the
+ * next entry needs a separator. JoinExpr recurses into larg + rarg;
+ * RangeSubselect / RangeFunction are silently skipped (their
+ * columns don't live in our snapshot anyway). */
+static void emit_from_entries(FILE *o, PgQuery__Node *node, int *first) {
+    if (!node) return;
+    switch (node->node_case) {
+        case PG_QUERY__NODE__NODE_RANGE_VAR: {
+            PgQuery__RangeVar *rv = node->range_var;
+            if (!rv->relname || !rv->relname[0]) return;
+            const char *schema = (rv->schemaname && rv->schemaname[0])
+                ? rv->schemaname : "public";
+            const char *alias = (rv->alias && rv->alias->aliasname
+                                 && rv->alias->aliasname[0])
+                ? rv->alias->aliasname : rv->relname;
+            if (!*first) fputs(", ", o);
+            *first = 0;
+            fputs("{ alias := ",  o); emit_string_literal(o, alias);
+            fputs(", schema := ", o); emit_string_literal(o, schema);
+            fputs(", name := ",   o); emit_string_literal(o, rv->relname);
+            fputs(" }",           o);
+            break;
+        }
+        case PG_QUERY__NODE__NODE_JOIN_EXPR: {
+            PgQuery__JoinExpr *je = node->join_expr;
+            emit_from_entries(o, je->larg, first);
+            emit_from_entries(o, je->rarg, first);
+            break;
+        }
+        default:
+            /* Subselects, function-call sources, etc. — skip. */
+            break;
+    }
+}
+
+/* Emit a `ViewTargetExpr` for one ResTarget's value node. */
+static void emit_view_target_expr(FILE *o, PgQuery__Node *val) {
+    if (!val) { fputs(".unknownExpr", o); return; }
+    if (val->node_case != PG_QUERY__NODE__NODE_COLUMN_REF) {
+        fputs(".unknownExpr", o);
+        return;
+    }
+    PgQuery__ColumnRef *cr = val->column_ref;
+    /* Extract identifier parts. Any non-String field (e.g. A_Star)
+     * collapses the whole ref to unknown. */
+    const char *parts[4] = {NULL, NULL, NULL, NULL};
+    size_t np = 0;
+    for (size_t i = 0; i < cr->n_fields && np < 4; i++) {
+        const char *s = node_string(cr->fields[i]);
+        if (!s) { np = 0; break; }   /* A_Star or similar — bail */
+        parts[np++] = s;
+    }
+    if (np == 0) { fputs(".unknownExpr", o); return; }
+
+    const char *table = (np >= 2) ? parts[np - 2] : NULL;
+    const char *col   = parts[np - 1];
+    fputs(".columnRef ", o);
+    if (table) { fputs("(some ", o); emit_string_literal(o, table); fputs(")", o); }
+    else       { fputs("none",  o); }
+    fputs(" ",  o); emit_string_literal(o, col);
+}
+
+/* Compute the view-column output name from a ResTarget. Explicit
+ * AS alias takes precedence; otherwise the trailing identifier of
+ * a ColumnRef. Returns NULL if neither applies (e.g. A_Star). */
+static const char *view_target_output_name(PgQuery__ResTarget *rt) {
+    if (rt->name && rt->name[0]) return rt->name;
+    if (!rt->val) return NULL;
+    if (rt->val->node_case != PG_QUERY__NODE__NODE_COLUMN_REF) return NULL;
+    PgQuery__ColumnRef *cr = rt->val->column_ref;
+    if (cr->n_fields == 0) return NULL;
+    return node_string(cr->fields[cr->n_fields - 1]);
+}
+
 /* Typed emission for a top-level Node. Returns 1 if recognized
  * (emitted a `.<variant>` form), 0 if the caller should fall back
  * to `.other ⟨#[bytes]⟩`. */
@@ -357,6 +439,51 @@ static int emit_typed_top(FILE *o, PgQuery__Node *node) {
             emit_type_ref(o, st->return_type);
             fprintf(o, ", returnSetof := %s }",
                     (st->return_type && st->return_type->setof) ? "true" : "false");
+            return 1;
+        }
+        case PG_QUERY__NODE__NODE_VIEW_STMT: {
+            PgQuery__ViewStmt *st = node->view_stmt;
+            fputs(".viewStmt { qualName := ", o);
+            const char *schema = (st->view && st->view->schemaname
+                                  && st->view->schemaname[0])
+                ? st->view->schemaname : NULL;
+            const char *name = (st->view && st->view->relname)
+                ? st->view->relname : "";
+            fputs("{ schema := ", o);
+            if (schema) { fputs("some ", o); emit_string_literal(o, schema); }
+            else        { fputs("none", o); }
+            fputs(", name := ", o);
+            emit_string_literal(o, name);
+            fputs(" }, fromList := [", o);
+            /* Walk into the SELECT for FROM + target list. */
+            int from_first = 1;
+            int has_select = (st->query &&
+                              st->query->node_case == PG_QUERY__NODE__NODE_SELECT_STMT);
+            PgQuery__SelectStmt *sel = has_select ? st->query->select_stmt : NULL;
+            if (sel) {
+                for (size_t i = 0; i < sel->n_from_clause; i++) {
+                    emit_from_entries(o, sel->from_clause[i], &from_first);
+                }
+            }
+            fputs("], targets := [", o);
+            int tgt_first = 1;
+            if (sel) {
+                for (size_t i = 0; i < sel->n_target_list; i++) {
+                    PgQuery__Node *tn = sel->target_list[i];
+                    if (!tn || tn->node_case != PG_QUERY__NODE__NODE_RES_TARGET) continue;
+                    PgQuery__ResTarget *rt = tn->res_target;
+                    const char *outname = view_target_output_name(rt);
+                    if (!outname) continue;
+                    if (!tgt_first) fputs(", ", o);
+                    tgt_first = 0;
+                    fputs("{ outputName := ", o);
+                    emit_string_literal(o, outname);
+                    fputs(", expr := ", o);
+                    emit_view_target_expr(o, rt->val);
+                    fputs(" }", o);
+                }
+            }
+            fputs("] }", o);
             return 1;
         }
         case PG_QUERY__NODE__NODE_ALTER_TABLE_STMT: {
