@@ -43,6 +43,22 @@ structure QualifiedName where
   name   : String
 deriving Repr, Inhabited
 
+/-- A reference to a type by name + an optional pre-resolved OID hint.
+
+    For `pg_catalog` builtins (`text`, `int8`, `bigint`, …), the C
+    decoder fills `oidHint` from its `BUILTIN_TYPES` table. For
+    user-defined types, `oidHint = 0` and the Lean fold resolves
+    the name against `snap.types` at fold time. This keeps the
+    decoder cheap (no snapshot-walking in C) while preserving
+    accurate cross-references for user types defined earlier in
+    the same .sql input. -/
+structure TypeRef where
+  schema  : Option String := none
+  name    : String
+  /-- 0 means "not resolved by the C decoder"; Lean searches by name. -/
+  oidHint : Nat := 0
+deriving Repr, Inhabited
+
 /-- `CREATE SCHEMA <schemaname> [IF NOT EXISTS]`. -/
 structure TopCreateSchemaStmt where
   schemaname  : String
@@ -55,6 +71,36 @@ structure TopCreateEnumStmt where
   labels   : List String := []
 deriving Repr, Inhabited
 
+/-- `CREATE DOMAIN <qualName> AS <baseType> [CHECK ...]`.
+
+    Constraints (CHECK / NOT NULL / DEFAULT) are not modeled at
+    snapshot level — `pgpb_to_snapshot.c` ignores them too. Only
+    the typbasetype is load-bearing for codegen. -/
+structure TopCreateDomainStmt where
+  qualName : QualifiedName
+  baseType : TypeRef
+deriving Repr, Inhabited
+
+/-- A single column definition (used inside `CREATE TABLE` and
+    `CREATE TYPE ... AS (..)`). -/
+structure ColumnDefSpec where
+  name    : String
+  typeRef : TypeRef
+  notNull : Bool := false
+deriving Repr, Inhabited
+
+/-- `CREATE TYPE <qualName> AS (<columns>)` — composite type. -/
+structure TopCompositeTypeStmt where
+  qualName : QualifiedName
+  columns  : List ColumnDefSpec := []
+deriving Repr, Inhabited
+
+/-- `CREATE TABLE <qualName> (<columns>)`. -/
+structure TopCreateStmt where
+  qualName : QualifiedName
+  columns  : List ColumnDefSpec := []
+deriving Repr, Inhabited
+
 /-- The top-level DDL discriminator the catalog fold dispatches on.
 
     Variants intentionally enumerate only what the fold handles;
@@ -62,9 +108,12 @@ deriving Repr, Inhabited
     grants — collapses into `.other ByteArray` and the fold leaves
     the snapshot unchanged for those stmts. -/
 inductive TopStmt where
-  | createSchemaStmt : TopCreateSchemaStmt → TopStmt
-  | createEnumStmt   : TopCreateEnumStmt   → TopStmt
-  | other            : ByteArray           → TopStmt
+  | createSchemaStmt   : TopCreateSchemaStmt   → TopStmt
+  | createEnumStmt     : TopCreateEnumStmt     → TopStmt
+  | createDomainStmt   : TopCreateDomainStmt   → TopStmt
+  | compositeTypeStmt  : TopCompositeTypeStmt  → TopStmt
+  | createStmt         : TopCreateStmt         → TopStmt
+  | other              : ByteArray             → TopStmt
 deriving Inhabited  -- ByteArray has no Repr; skip the derive
 
 /-- The C decoder's `--typed` output shape — a `ParseResult` where

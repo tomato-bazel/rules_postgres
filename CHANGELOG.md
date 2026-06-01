@@ -4,6 +4,85 @@ All notable changes to rules_postgres. The format is loosely
 [Keep a Changelog](https://keepachangelog.com/) — version headers
 mirror the published bazel-registry entries.
 
+## 0.6.1 — Pg.Catalog.Fold Phase 1+2: domains, composites, tables
+
+Extends the kernel-checked catalog fold to three more stmt kinds
+(`CreateDomainStmt`, `CompositeTypeStmt`, `CreateStmt`) plus the
+shared infrastructure for resolving column types — including
+user-defined types looked up from the in-progress snapshot.
+
+NEW TYPED SHAPES (`lean/Pg/Query/Top.lean`)
+
+  * `TypeRef` — `{schema, name, oidHint}`. The C decoder fills
+    `oidHint` from its `BUILTIN_TYPES` table for `pg_catalog`
+    builtins (`text=25`, `int8=20`, …); user types arrive with
+    `oidHint = 0` and the Lean fold resolves them via `snap.types`.
+  * `ColumnDefSpec` — `{name, typeRef, notNull}`.
+  * `TopCreateDomainStmt` — `{qualName, baseType}`.
+  * `TopCompositeTypeStmt` — `{qualName, columns}`.
+  * `TopCreateStmt` — `{qualName, columns}`.
+
+NEW FOLD HANDLERS (`lean/Pg/Catalog/Fold.lean`)
+
+  * `resolveType : TypeRef → FoldState → Nat` — fast path on the
+    OID hint; fallback walks `snap.namespaces` + `snap.types` for
+    user types. Catchall is `2249` (record), matching the C
+    `type_name_to_oid` sentinel.
+  * `foldCreateDomain` — emits `PgType` with `typtype := .domain`
+    and `typbasetype` from the resolved type ref.
+  * `addRelationWithColumns` — shared helper for composites and
+    tables; allocates `(typOid, relOid)` via `alloc2`, stages the
+    `PgType` and `PgClass` rows, then folds each `ColumnDefSpec`
+    into a `PgAttribute`. The state is advanced row-by-row so each
+    column's `resolveType` sees any earlier-allocated user types in
+    the same fold (e.g. `CREATE TABLE locations (pos point)` after
+    a sibling `CREATE TYPE point AS (...)` resolves correctly).
+  * `foldCompositeType` / `foldCreateTable` — thin wrappers around
+    the shared helper with `.compositeType` vs `.ordinaryTable`.
+
+C DECODER (`tools/pgpb_to_lean_ast`)
+
+  * `BUILTIN_TYPES[]` table mirrored from `pgpb_to_snapshot.c` —
+    same 42 entries (`bool`, `int{8,4,2}`/`{bigint,integer,smallint}`,
+    `text`, `varchar`, `uuid`, `date`, `timestamp[tz]`, `interval`,
+    `json[b]`, `numeric`, regtypes, array variants, etc).
+  * `emit_type_ref` — emits a `{schema, name, oidHint}` from a proto
+    `TypeName`. Collapses `pg_catalog` → `none` on the Lean side
+    and fills `oidHint` for builtins.
+  * `emit_column_def_spec` / `emit_column_def_list` — emits
+    `ColumnDefSpec` payloads from `ColumnDef` Nodes; skips
+    non-ColumnDef table_elts (e.g. inline Constraint Nodes).
+  * `column_notnull` — NOT NULL / PRIMARY KEY constraint detection
+    (same logic as `pgpb_to_snapshot.c`).
+  * Three new dispatch arms in `emit_typed_top` —
+    `CreateDomainStmt`, `CompositeTypeStmt`, `CreateStmt`.
+
+TIGHTENED PIPELINE TEST
+
+  `FoldPipelineTest.lean` now asserts:
+
+    * 3 types (domain + composite + table's implicit row type)
+    * 2 relations (composite + table)
+    * 5 attributes (point.x, point.y, locations.id/name/position)
+    * `identifier.typbasetype = 25` (text builtin via OID hint)
+    * `locations.id.atttypid = 20` (int8) and `attnotnull = true`
+      (inferred from PRIMARY KEY)
+    * `locations.position.atttypid ≡ point.oid` (user-type
+      resolution via snapshot walk)
+
+PHASE COVERAGE TODAY
+
+  Phase 0:                CreateSchemaStmt, CreateEnumStmt
+  Phase 1 (this release): CreateDomainStmt
+  Phase 2 (this release): CompositeTypeStmt, CreateStmt
+  Phase 3 (planned):      CreateFunctionStmt
+  Phase 4 (planned):      ViewStmt
+  Phase 5 (planned):      AlterTableStmt
+  Phase 6 (planned):      byte-equivalence diff_test vs
+                          pgpb_to_snapshot.c
+
+After Phase 5 the C catalog folder can be retired.
+
 ## 0.6.0 — Pg.Catalog.Fold: kernel-checked catalog projection (Phase 0)
 
 The fourth and load-bearing leg of the proto → Lean trust chain.
