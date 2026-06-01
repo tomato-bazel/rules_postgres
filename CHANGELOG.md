@@ -4,6 +4,80 @@ All notable changes to rules_postgres. The format is loosely
 [Keep a Changelog](https://keepachangelog.com/) — version headers
 mirror the published bazel-registry entries.
 
+## 0.6.4 — Pg.Catalog.Fold Phase 6: byte-equivalence gate vs C tool
+
+Locks the kernel-checked Lean catalog projection against the C
+catalog folder. Both folders process the same `.pgpb` in one Lean
+elaboration and `native_decide` proves every user-allocated row
+matches field-by-field across all five catalog tables.
+
+NEW BAZEL TARGETS (`tools/pgpb_to_lean_ast/BUILD.bazel`)
+
+  * `smoke_fixture_c_snapshot` — genrule running
+    `@rules_postgres//tools/pgpb_to_snapshot:pgpb_to_snapshot` on
+    the same `smoke_fixture.pgpb` the typed decoder consumes.
+    Emits `SmokeFixtureC.lean` with `def snapshot : Snapshot`.
+
+NEW LEAN TEST (`lean/Pg/Catalog/FoldDiffTest.lean`)
+
+  Imports both `SmokeFixtureC` and `SmokeFixtureTyped`, runs the
+  Lean fold over the latter, and asserts:
+
+    * `namespaces` — full equality on (oid, nspname).
+    * `userTypes` (OID ≥ 16384) — equality on (oid, name, namespace,
+      typtype, typbasetype, typrelid).
+    * `relations` — equality on (oid, name, namespace, relkind, reltype).
+    * `attributes` — equality on (attrelid, attname, atttypid, attnum,
+      attnotnull).
+    * `procs` — equality (via BEq) on (oid, name, namespace,
+      rettype, argtypes, argnames, retset).
+
+  These five asserts cover every load-bearing field on every kind
+  of catalog row. With this gate in place, the Lean fold's behavior
+  is pinned to the C tool's for the smoke fixture's full DDL
+  surface (schema + domain + composite + table + function + 2 alters
+  + view).
+
+FIX: composite-type column NOT NULL
+
+  `pgpb_to_snapshot.c` hardcodes `attnotnull = 1` for composite-type
+  columns (postgres treats them as struct fields with implicit NOT
+  NULL). The Lean fold was using each column's per-column flag
+  (which the C decoder set to false because composite type columns
+  have no constraints). `addRelationWithColumns` now takes a
+  `forceNotNull : Bool`:
+
+    * `foldCompositeType`  passes `true`
+    * `foldCreateTable`    passes `false` (preserves PRIMARY KEY /
+                                            NOT NULL constraint flow)
+
+  The fix made the diff test pass on `point.x` / `point.y` (both
+  `attnotnull := true` post-fix, matching C).
+
+WHAT THE GATE DOESN'T COVER (yet)
+
+  * Builtin pg_catalog type rows — the C tool emits an
+    "as-referenced" set (int8, text, record, …); the Lean fold
+    doesn't. Adding a builtins-augmentation pass lifts the diff to
+    FULL byte equivalence, after which the C catalog folder can
+    retire entirely.
+
+  * Enum labels — the smoke fixture has no enum types.
+
+  * Proc volatility / security — both tools hard-code
+    `provolatile = .stable` and `prosecdef = false`. Inferring
+    these from the function's options list is Phase 7 work.
+
+PHASE COVERAGE
+
+  Phase 0     (0.6.0): CreateSchema, CreateEnum
+  Phase 1     (0.6.1): CreateDomain
+  Phase 2     (0.6.1): CompositeType, CreateStmt
+  Phase 3+5   (0.6.2): CreateFunctionStmt, AlterTableStmt
+  Phase 4     (0.6.3): ViewStmt
+  Phase 6 (this rel.): byte-equivalence gate vs pgpb_to_snapshot.c
+  Phase 7  (planned ): builtins augmentation → C folder retirement
+
 ## 0.6.3 — Pg.Catalog.Fold Phase 4: views with column type inference
 
 The last structural stmt kind. All seven DDL phases (0–5) now land

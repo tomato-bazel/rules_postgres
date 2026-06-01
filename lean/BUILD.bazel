@@ -309,3 +309,26 @@ lean_test(
     entry = "Pg/Catalog/FoldPipelineTest.lean",
     visibility = ["//visibility:public"],
 )
+
+# Phase 6 byte-equivalence gate: both folders process the SAME
+# smoke_fixture.pgpb in the same elaboration, then native_decide
+# asserts user-row equivalence on every catalog table. When the
+# Lean fold grows a builtins-augmentation pass (so its emitted
+# type list matches pgpb_to_snapshot.c's "as-referenced" set), the
+# diff tightens to full byte-equivalence and the C tool retires.
+lean_test(
+    name = "pg_catalog_fold_diff_test",
+    srcs = [
+        "Pg/Catalog/Oid.lean",
+        "Pg/Catalog/Tables.lean",
+        "Pg/Catalog/RegTypes.lean",
+        "Pg/Catalog/Snapshot.lean",
+        "Pg/Query/Top.lean",
+        "Pg/Catalog/Fold.lean",
+        "//tools/pgpb_to_lean_ast:SmokeFixtureTyped.lean",
+        "//tools/pgpb_to_lean_ast:SmokeFixtureC.lean",
+        "Pg/Catalog/FoldDiffTest.lean",
+    ],
+    entry = "Pg/Catalog/FoldDiffTest.lean",
+    visibility = ["//visibility:public"],
+)
