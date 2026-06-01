@@ -19,12 +19,18 @@ Usage in the consuming module's BUILD:
 (register the `toolchain` target via `register_toolchains(...)` in
 MODULE.bazel or `--extra_toolchains` on the command line.)
 
-Also exposes `pg_sql_catalog_library` — a thin wrapper around
-`sql_catalog_library` that pre-fills `folder` with
-`@rules_postgres//tools:pgpb_to_snapshot`, so consumers don't have to
-hand-thread the postgres-specific catalog folder."""
+Also exposes:
 
-load("@rules_lang//polyglot:sql.bzl", "SqlAstInfo", "SqlToolchainInfo", "sql_catalog_library")
+  * `pg_sql_typed_library` — runs `pgpb_to_lean_ast --typed` over a
+    set of `sql_ast_library` deps, producing a `Pg.Query.Top`-typed
+    parse result Lean module.
+
+  * `pg_sql_catalog_library_lean` — full catalog projection via the
+    kernel-checked Lean fold (`Pg.Catalog.Fold` +
+    `Snapshot.toLeanSource`). Drop-in target for `lean_emit` consumers
+    that want a `Pg.Catalog.Snapshot` Lean module."""
+
+load("@rules_lang//polyglot:sql.bzl", "SqlAstInfo", "SqlToolchainInfo")
 load("@rules_lean//lean:lean.bzl", "lean_emit")
 
 def _pg_sql_toolchain_impl(ctx):
@@ -66,22 +72,6 @@ pg_sql_toolchain = rule(
     libpg_query release is used for the schema descriptor, so encoder
     and decoder versions are bound by Bazel resolution.""",
 )
-
-def pg_sql_catalog_library(name, deps, module_name = None, output_format = "lean", **kwargs):
-    """Catalog projection wrapper that pre-fills the postgres folder.
-
-    Identical to `sql_catalog_library` but binds `folder` to
-    `@rules_postgres//tools/pgpb_to_snapshot:pgpb_to_snapshot` so
-    consumers don't need to know the dialect-specific tool name.
-    """
-    sql_catalog_library(
-        name = name,
-        deps = deps,
-        folder = "@rules_postgres//tools/pgpb_to_snapshot:pgpb_to_snapshot",
-        module_name = module_name,
-        output_format = output_format,
-        **kwargs
-    )
 
 # ─── pg_sql_typed_library ──────────────────────────────────────────
 #
@@ -162,9 +152,8 @@ pg_sql_typed_library = rule(
 
 # ─── pg_sql_catalog_library_lean ──────────────────────────────────
 #
-# Drop-in replacement for `pg_sql_catalog_library` whose backend is
-# the kernel-checked Lean fold (Pg.Catalog.Fold + the
-# Snapshot.toLeanSource printer) instead of `pgpb_to_snapshot.c`.
+# Full catalog projection via the kernel-checked Lean fold
+# (`Pg.Catalog.Fold` + the `Snapshot.toLeanSource` printer).
 #
 # Pipeline expanded by the macro:
 #
@@ -177,10 +166,8 @@ pg_sql_typed_library = rule(
 #   on it, and IO.println's the printer output.
 #
 #   lean_emit(name) runs Main.lean and captures stdout to
-#       <name>.lean — the same file layout pg_sql_catalog_library
-#       emits today.
-#
-# Once enough consumers migrate, pgpb_to_snapshot.c can be deleted.
+#       <name>.lean — a `Pg.Catalog.Snapshot` Lean module ready for
+#       downstream consumers.
 
 _LEAN_DEPS = [
     "@rules_postgres//lean:Pg/Catalog/Oid.lean",

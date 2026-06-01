@@ -737,7 +737,7 @@
     "//postgres:extensions.bzl%pg": {
       "general": {
         "bzlTransitiveDigest": "kQ1NWpx1N6s28LGGwXrll/nPDle/RjmwovJVhdCgOj0=",
-        "usagesDigest": "PTcn0a7T0K0Tg/PAFfYu3gBMMKixRLjubVoi//SkrGE=",
+        "usagesDigest": "QosgmGWiHLMXaSjl+jhuoehCMO+0wVocVjqITeHhZHw=",
         "recordedInputs": [
           "REPO_MAPPING:,rules_github rules_github+"
         ],
@@ -964,7 +964,7 @@
     "@@rules_lean+//lean:lake.bzl%lake": {
       "general": {
         "bzlTransitiveDigest": "TSkwKKphDCoYLuQrznBpnrnmoMj4SwnnWW9GsydjB1o=",
-        "usagesDigest": "uFs0NXKrVdhfDPLTXRuDhsy9mXkukyoyUctw9C5vO3U=",
+        "usagesDigest": "5tgVnAaMCF4rvCCwlfkFS0ZZRFoB5P1y5R3KU9vuuS8=",
         "recordedInputs": [],
         "generatedRepoSpecs": {
           "rules_postgres_lake": {

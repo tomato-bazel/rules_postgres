@@ -67,20 +67,3 @@ genrule(
           "$<",
 )
 
-# C-tool reference snapshot — runs `pgpb_to_snapshot` on the same
-# .pgpb and emits a Lean Snapshot value. Phase 6's
-# `pg_catalog_fold_diff_test` imports this alongside the Lean fold's
-# output and asserts equivalence on user-allocated rows. When the
-# Lean fold grows builtins-augmentation (so it can emit the exact
-# same row set as the C tool), the assertions tighten to full
-# byte-equivalence and the C catalog folder retires.
-genrule(
-    name = "smoke_fixture_c_snapshot",
-    srcs = [":smoke_fixture.pgpb"],
-    outs = ["SmokeFixtureC.lean"],
-    tools = ["//tools/pgpb_to_snapshot:pgpb_to_snapshot"],
-    cmd = "$(location //tools/pgpb_to_snapshot:pgpb_to_snapshot) " +
-          "--module SmokeFixtureC " +
-          "--output $@ " +
-          "$<",
-)

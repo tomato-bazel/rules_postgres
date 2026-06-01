@@ -4,6 +4,74 @@ All notable changes to rules_postgres. The format is loosely
 [Keep a Changelog](https://keepachangelog.com/) — version headers
 mirror the published bazel-registry entries.
 
+## 0.7.0 — Catalog projection: C tool retired; Lean fold is canonical
+
+The kernel-checked Lean fold has been the production backend since
+0.6.7 and gated by byte-equivalence to the C tool's output. With
+that parity proven on the full savvi initial_schema (1384 stmts,
+across all five catalog tables) AND the downstream `@aion/savvi-db-
+generated` byte-equal-to-fixture diff gate (4927-line TS),
+`pgpb_to_snapshot.c` no longer earns its keep — the diff gate's
+parity reference role is the only thing it was doing.
+
+This release deletes it and rewires the regression guard onto a
+golden-fixture diff.
+
+DELETED
+
+  `tools/pgpb_to_snapshot/`
+    The C catalog folder. ~900 LOC of C that the Lean fold +
+    `Snapshot.toLeanSource` printer now subsume.
+
+  `pg_sql_catalog_library` macro (postgres/sql_toolchain.bzl)
+    Wrapped `sql_catalog_library` over the C tool. Consumers migrate
+    to `pg_sql_catalog_library_lean` — same API surface, Lean-fold
+    backend.
+
+  `lean/Pg/Catalog/FoldDiffTest.lean` + smoke `smoke_fixture_c_snapshot`
+    genrule
+    The smoke-fixture-scale C-vs-Lean byte-equivalence gate. Its job
+    moves to:
+      * `pg_catalog_fold_pipeline_test` (semantic; ran already)
+      * `pg_catalog_snapshot_emit_test` (printer; ran already)
+      * consumer-side golden-fixture diff on the produced .lean
+
+REPLACEMENT REGRESSION STRATEGY
+
+  Aion's `//ci:pr_gates` now relies on:
+
+    `savvi_initial_schema_snapshot_diff_test` (new in Aion)
+      Byte-diff between the Lean-fold-emitted
+      `savvi_initial_schema_snapshot_lean.lean` and the committed
+      `expected.savvi_initial_schema_snapshot.lean` (895 lines).
+      Updates via
+        `bazel run //lean:update_savvi_initial_schema_snapshot`.
+
+    `v0_codegen_savvi_db_generated_index_diff_test` (already in
+      pr_gates)
+      Catches any semantic regression that surfaces in the
+      downstream TS emit.
+
+    `pg_catalog_fold_test` + `pg_catalog_fold_pipeline_test`
+      Semantic unit tests on the fold's behavior.
+
+    `pg_catalog_snapshot_emit_test`
+      Printer smoke (every row kind covered by hand-built sample).
+
+  Future changes to `Pg.Catalog.Fold` or `Pg.Catalog.SnapshotEmit`
+  that change the output break the golden-fixture diff; the
+  contributor updates the golden after reviewing what changed.
+
+WHY THE MAJOR-MINOR BUMP
+
+  `pg_sql_catalog_library` was a public macro. Consumers that
+  imported it from `@rules_postgres//postgres:sql_toolchain.bzl`
+  will fail to load at startup. The macro's replacement
+  (`pg_sql_catalog_library_lean`) has the same callsite shape and
+  produces the same `.lean` output shape; the only API difference
+  is the symbol name. Aion's own consumers (`savvi_initial_schema_*`,
+  `savvi_ids_*`) migrated in the same release.
+
 ## 0.6.7 — Snapshot.toLeanSource printer + pg_sql_catalog_library_lean macro
 
 The final piece needed for consumer-side migration off
