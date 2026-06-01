@@ -187,7 +187,9 @@ def enum_variant_name(stripped: str) -> str:
 
 def field_type_repr(field: descriptor_pb2.FieldDescriptorProto,
                     msg_names: set[str],
-                    enum_defaults: dict[str, str]) -> tuple[str, str]:
+                    enum_defaults: dict[str, str],
+                    stubs: Optional[dict[str, tuple[str, str]]] = None
+                    ) -> tuple[str, str]:
     """Return (lean_type, lean_default) for a single field.
 
     Handles:
@@ -210,6 +212,18 @@ def field_type_repr(field: descriptor_pb2.FieldDescriptorProto,
     # shadowed type.
     if field.type == T.TYPE_MESSAGE:
         msg_name = lean_type_name(field.type_name)
+        # Stub substitution: if this type has been stubbed (e.g.
+        # `Node → _root_.ByteArray` to break the proto's universal
+        # SCC), use the replacement (lean_type, lean_default).
+        if stubs and msg_name in stubs:
+            elt_t, elt_default = stubs[msg_name]
+            if is_repeated:
+                return (f"_root_.List {elt_t}", "[]")
+            else:
+                # Stubbed singular submessage: just the stub type
+                # directly (no Option wrap — the stub already
+                # encodes presence).
+                return (elt_t, elt_default)
         if is_repeated:
             return (f"_root_.List {msg_name}", "[]")
         else:
@@ -275,7 +289,9 @@ def collect_message_oneofs(msg: descriptor_pb2.DescriptorProto):
 def emit_message_structure(out: list[str],
                            msg: descriptor_pb2.DescriptorProto,
                            msg_names: set[str],
-                           enum_defaults: dict[str, str]) -> None:
+                           enum_defaults: dict[str, str],
+                           stubs: Optional[dict[str, tuple[str, str]]] = None
+                           ) -> None:
     """Emit a `structure` for a message with no oneofs (or for the
     non-oneof part of a mixed message — Phase 2 will handle mixed)."""
     name = lean_type_name(msg.name)
@@ -316,7 +332,7 @@ def emit_message_structure(out: list[str],
     # Emit regular fields
     for f in regulars:
         fname = lean_field_name(f.name)
-        ftype, default = field_type_repr(f, msg_names, enum_defaults)
+        ftype, default = field_type_repr(f, msg_names, enum_defaults, stubs)
         out.append(f"  {fname:<18} : {ftype:<28} := {default}")
     # Emit oneof fields as Option <variant> for each (loose Phase 1
     # encoding; design doc §9 leaves the precise oneof structure as
@@ -325,7 +341,7 @@ def emit_message_structure(out: list[str],
     for oi in sorted(oneofs.keys()):
         for f in oneofs[oi]:
             fname = lean_field_name(f.name)
-            ftype, default = field_type_repr(f, msg_names, enum_defaults)
+            ftype, default = field_type_repr(f, msg_names, enum_defaults, stubs)
             # Wrap oneof scalar fields in Option to model
             # explicit-presence.
             if f.type in SCALAR_TYPES:
@@ -371,6 +387,54 @@ def topo_sort_messages(messages: list[descriptor_pb2.DescriptorProto]
     return out
 
 
+# ─── Reachability filter ───────────────────────────────────────────
+
+def reachable_types(roots: list[str],
+                    all_messages: list,
+                    all_enums: list,
+                    stubs: Optional[dict[str, tuple[str, str]]] = None
+                    ) -> tuple[set[str], set[str]]:
+    """Compute the transitive closure of types reachable from `roots`.
+
+    Returns (reachable_message_names, reachable_enum_names).
+
+    A message is "reachable" if it's in roots or referenced by any
+    reachable message's fields (as a message or enum type). The
+    closure traverses through `Node`'s oneof variants — the full
+    proto's SCC — so passing `{ParseResult, Node}` as roots
+    effectively means "everything", whereas `{CreateSchemaStmt}`
+    selects just one stmt + its building blocks.
+    """
+    msg_by_name = {lean_type_name(m.name): m for m in all_messages}
+    enum_by_name = {lean_type_name(e.name): e for e in all_enums}
+
+    reachable_msgs: set[str] = set()
+    reachable_enums: set[str] = set()
+    queue = list(roots)
+
+    while queue:
+        name = queue.pop()
+        if name in reachable_msgs or name not in msg_by_name:
+            continue
+        reachable_msgs.add(name)
+        msg = msg_by_name[name]
+        for f in msg.field:
+            if f.type == T.TYPE_MESSAGE:
+                ref = lean_type_name(f.type_name)
+                # Stubbed types are terminal — the field becomes the
+                # stub's Lean type (e.g. ByteArray); we don't follow
+                # the stub's transitive references.
+                if stubs and ref in stubs:
+                    continue
+                queue.append(ref)
+            elif f.type == T.TYPE_ENUM:
+                ename = lean_type_name(f.type_name)
+                if ename in enum_by_name:
+                    reachable_enums.add(ename)
+
+    return reachable_msgs, reachable_enums
+
+
 # ─── Phase 1 entry: emit one big Generated.lean ────────────────────
 
 LEAN_FILE_HEADER = """\
@@ -379,19 +443,14 @@ LEAN_FILE_HEADER = """\
 -- Re-run: bazel run @rules_postgres//tools/pgpb_codegen:regenerate
 -- DO NOT EDIT BY HAND.
 
--- The whole proto's message universe is one SCC through `Node`,
--- emitted as a single `mutual ... end` block. Elaboration cost
--- scales with the block size (~270 mutually recursive types here),
--- so we bump `maxHeartbeats` until Phase 2's split into per-cluster
--- files lands.
-set_option maxHeartbeats 1600000
-
 namespace Pg.Query
 """
 
 
 def emit_lean(file_set: descriptor_pb2.FileDescriptorSet,
-              version: str) -> str:
+              version: str,
+              roots: Optional[list[str]] = None,
+              stubs: Optional[dict[str, tuple[str, str]]] = None) -> str:
     out: list[str] = []
     out.append(LEAN_FILE_HEADER.format(version=version))
 
@@ -402,6 +461,17 @@ def emit_lean(file_set: descriptor_pb2.FileDescriptorSet,
     for f in file_set.file:
         all_messages.extend(f.message_type)
         all_enums.extend(f.enum_type)
+
+    # Filter to the transitive closure if roots are specified.
+    if roots:
+        rmsgs, renums = reachable_types(roots, all_messages, all_enums, stubs)
+        all_messages = [m for m in all_messages if lean_type_name(m.name) in rmsgs]
+        all_enums = [e for e in all_enums if lean_type_name(e.name) in renums]
+        sys.stderr.write(
+            f"  pgpb_codegen: filter to {len(roots)} roots → "
+            f"{len(all_messages)} messages, {len(all_enums)} enums reachable"
+            f"{' (with ' + str(len(stubs)) + ' stub(s))' if stubs else ''}\n"
+        )
 
     msg_names: set[str] = {lean_type_name(m.name) for m in all_messages}
 
@@ -436,7 +506,7 @@ def emit_lean(file_set: descriptor_pb2.FileDescriptorSet,
         out.append("mutual")
         out.append("")
         for m in sorted_messages:
-            emit_message_structure(out, m, msg_names, enum_defaults)
+            emit_message_structure(out, m, msg_names, enum_defaults, stubs)
         out.append("end  -- mutual")
         out.append("")
 
@@ -454,7 +524,32 @@ def main(argv: list[str]) -> int:
                     help="path to write Generated.lean")
     ap.add_argument("--version", default="unknown",
                     help="libpg_query release tag, embedded in the header")
+    ap.add_argument("--roots", default=None,
+                    help="comma-separated message names to scope the closure "
+                         "(e.g. 'ParseResult,CreateSchemaStmt'). Omit to emit "
+                         "the full proto surface.")
+    ap.add_argument("--stub", action="append", default=[],
+                    help="message stub: 'Name=LeanType:default'. Every "
+                         "reference to <Name> becomes <LeanType>, and "
+                         "reachability stops at it. Used to break the proto's "
+                         "universal SCC — e.g. "
+                         "'--stub Node=_root_.ByteArray:_root_.ByteArray.empty' "
+                         "makes Node an opaque payload so stmts compile as "
+                         "plain structures. Repeat for multiple stubs.")
     args = ap.parse_args(argv[1:])
+
+    roots = args.roots.split(",") if args.roots else None
+    stubs: dict[str, tuple[str, str]] = {}
+    for spec in args.stub:
+        # Format: "Name=LeanType:default" — split on '=' then ':'.
+        try:
+            name, rest = spec.split("=", 1)
+            lean_type, default = rest.rsplit(":", 1)
+            stubs[name.strip()] = (lean_type.strip(), default.strip())
+        except ValueError:
+            sys.stderr.write(f"  pgpb_codegen: bad --stub spec: {spec!r}\n")
+            sys.stderr.write(f"    expected 'Name=LeanType:default'\n")
+            return 2
 
     with open(args.descriptor, "rb") as f:
         data = f.read()
@@ -468,7 +563,8 @@ def main(argv: list[str]) -> int:
         f"across {len(file_set.file)} files\n"
     )
 
-    src = emit_lean(file_set, args.version)
+    src = emit_lean(file_set, args.version, roots=roots,
+                    stubs=stubs if stubs else None)
     with open(args.output, "w") as f:
         f.write(src + "\n")
     sys.stderr.write(f"  wrote {args.output} ({src.count(chr(10))} lines)\n")

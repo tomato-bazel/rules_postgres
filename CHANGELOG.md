@@ -4,6 +4,68 @@ All notable changes to rules_postgres. The format is loosely
 [Keep a Changelog](https://keepachangelog.com/) — version headers
 mirror the published bazel-registry entries.
 
+## 0.5.2 — pgpb_codegen Phase 2: --stub + --roots; DDL-aligned default
+
+The design-doc file-split strategy doesn't actually work: every
+stmt's fields reference `Node` (via `repeated Node coldeflist` /
+`tableElts` / `parameters` / `vals`), and `Node`'s oneof references
+every stmt — so all 273 messages form one SCC. Lean can't elaborate
+the resulting mutual block even with `maxHeartbeats` bumped 16×.
+
+This release pivots to a different tactic: **stub-based SCC break.**
+
+**New flags on `pgpb_codegen.py`:**
+
+  * `--roots Foo,Bar,...` — scope the generated output to the
+    transitive closure from the named messages. Closure traversal
+    stops at stubbed types (see below).
+
+  * `--stub 'Name=LeanType:default'` — replace every reference to
+    the proto message `Name` with the given Lean type literal, and
+    treat it as a terminal node in the reachability walk. The
+    canonical use is
+
+        --stub 'Node=_root_.ByteArray:_root_.ByteArray.empty'
+
+    which makes every `Node` field an opaque `ByteArray`. The SCC
+    breaks; the remaining types form a DAG; Lean elaborates in
+    seconds.
+
+**Default generation is now DDL-aligned.** The committed
+`lean/Pg/Query/Generated.lean` regenerates with:
+
+    --roots ParseResult,CreateSchemaStmt,CreateDomainStmt, \
+            CompositeTypeStmt,CreateEnumStmt,CreateStmt, \
+            CreateFunctionStmt
+    --stub  Node=_root_.ByteArray:_root_.ByteArray.empty
+
+This matches the six DDL statements `pgpb_to_snapshot.c` already
+dispatches on. Output: 156 lines, 15 messages + 3 enums (RoleSpec,
+PartitionStrategy, OnCommitAction), elaborates in ~1.4 s.
+
+**What the stub means semantically.** Inside a `CreateStmt`, the
+field `tableElts : List ByteArray` carries the raw protobuf bytes
+for each ColumnDef / Constraint / TableLikeClause Node payload.
+This mirrors what `pgpb_to_snapshot.c` already does (it walks
+ColumnDef via the protobuf-c API, treating each `tableElts[i]` as
+a typed sub-tree). Consumers that need typed sub-trees decode the
+bytes via a future `pgpb_to_lean_ast` lift (Phase 3).
+
+**Trajectory.** Future regenerations can pass smaller stub sets
+to expand the typed surface incrementally — e.g. unstub
+`ColumnDef` and `Constraint` to add column-level structure
+without re-introducing the full SCC. The encoding decisions
+from §4 of the design doc (`_root_.` shadow handling, enum
+prefix-strip, oneof → inductive, proto3 zero-value defaults)
+all carry over.
+
+**Design doc addendum needed.** The §9.2 "split into 5 files"
+recommendation is wrong. Phase 2 is not a file split — it's a
+SCC break via stubbing. The design doc in
+`narrative/proto-to-lean-design-poc.md` (consumer's repo)
+should get an addendum reflecting this; left for a follow-up
+since the implementation now diverges from §9.2 in a clear way.
+
 ## 0.5.1 — pgpb_codegen Phase 1: proto → Lean generator (preview)
 
 Lands the Python generator for the `Pg.Ast`-from-`pg_query.proto`
