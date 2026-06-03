@@ -162,6 +162,8 @@ def printExpr : Expr → String
       "(" ++ printExpr subject ++ " BETWEEN " ++ printExpr lo ++ " AND " ++ printExpr hi ++ ")"
   | .ext (.ltreeDescendantOf l r) =>
       "(" ++ printExpr l ++ " <@ " ++ printExpr r ++ ")"
+  | .ext (.bitwiseOr l r) =>
+      "(" ++ printExpr l ++ " | " ++ printExpr r ++ ")"
   | .selectScalar col tbl alias whereCond orderBy limit =>
       let aliasStr :=
         match alias with

@@ -138,6 +138,15 @@ inductive ExprExt where
       (l : Polyglot.Sql.Ast.Expr ExprExt)
       (r : Polyglot.Sql.Ast.Expr ExprExt)
     : ExprExt
+  -- Bitwise OR `a | b` — integer/bitmask operator. Used by
+  -- `graph.compute_permission_bits` to combine resource-policy and
+  -- statement-policy bitmasks. PG dispatches via `int2or` /
+  -- `int4or` / `int8or` based on operand types; the renderer just
+  -- emits `(<l> | <r>)`.
+  | bitwiseOr
+      (l : Polyglot.Sql.Ast.Expr ExprExt)
+      (r : Polyglot.Sql.Ast.Expr ExprExt)
+    : ExprExt
   -- PG JSONB ops
   | jsonbHasKey
       (j : Polyglot.Sql.Ast.Expr ExprExt)
