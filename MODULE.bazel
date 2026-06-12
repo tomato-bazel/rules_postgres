@@ -31,20 +31,19 @@ bazel_dep(name = "rules_meson", version = "0.0.0")
 # moves on or after 2026-06-01; the scaffolding here lands first as
 # empty stubs + a smoke test so the receiving wiring is proven before
 # any content arrives.
-bazel_dep(name = "rules_lean", version = "0.3.5")
+bazel_dep(name = "rules_lean", version = "0.5.1")
 
-# Minimal Lake workspace pinning the Lean toolchain. Currently no
-# external `require` packages — Phase 1 modules (PgTy + PgAst + PgPretty
-# + Catalog/*) only import from Lean core. Add requires here + in
-# tools/lake/lakefile.lean when later phases pull in mathlib/cslib.
+# Minimal Lake workspace pinning the Lean toolchain. Dep-free: Phase 1
+# modules (PgTy + PgAst + PgPretty + Catalog/*) import only Lean core, and
+# rules_lean >= 0.5.1 accepts a zero-package workspace (the lake_workspace
+# dep-free path), so the old nominal `require batteries` is gone — it was
+# never imported, and source-building it cost ~15 min on every CI run that
+# pulled rules_postgres in. Add real requires here + in tools/lake/lakefile.lean
+# when later phases pull in mathlib/cslib.
 # Toolchain version must match Aion's tools/lake/lean-toolchain.
 lake = use_extension("@rules_lean//lean:lake.bzl", "lake")
 lake.workspace(
     name = "rules_postgres_lake",
-    # Batteries (the one nominal `require` in our lakefile) doesn't
-    # have a Reservoir prebuilt-olean cache. allow_source_build makes
-    # rules_lean run `lake build batteries` from source.
-    allow_source_build = True,
     lake_manifest = "//tools/lake:lake-manifest.json",
     lakefile = "//tools/lake:lakefile.lean",
     lean_toolchain = "//tools/lake:lean-toolchain",
