@@ -1,0 +1,44 @@
+"""Prebuilt SQL-toolchain release artifact (producer half).
+
+`//tools:sql_to_protobuf` is a `cc_binary` that statically links `@libpg_query`
+— a heavy meson build. Bundling it (+ the `pg_query.proto` descriptor) into a
+per-(os, arch) tarball lets a release-variant `pg_sql_toolchain` resolve the
+prebuilt parser via `http_archive` instead of rebuilding libpg_query from
+source. Consumers (e.g. fastverk/polyglot's SQL Lir codec) then skip the meson
+build entirely.
+
+This mirrors `@rules_lang//release:rules_lang_bin` (the Rust codec bins) and the
+polyglot atlas olean (`lean_olean_archive` -> GitHub release ->
+`lean_imported_library`). The consume side — a release-variant
+`pg_sql_toolchain` that `http_archive`s this tarball + a publish CI job — follows
+this producer. Build/publish once per target platform in release CI:
+
+    bazel build //release:sql_toolchain_bin //release:sql_toolchain_bin_sha256
+"""
+
+load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
+
+package(default_visibility = ["//visibility:public"])
+
+pkg_tar(
+    name = "sql_toolchain_bin",
+    extension = "tar.gz",
+    # bin/sql_to_protobuf  — the parser (static libpg_query link; no runfiles).
+    # share/pg_query.proto — the descriptor the toolchain's `proto_descriptor`
+    #                        attribute wants, so consumers need not fetch
+    #                        @libpg_query at all.
+    files = {
+        "//tools:sql_to_protobuf": "bin/sql_to_protobuf",
+        "@libpg_query//:protobuf/pg_query.proto": "share/pg_query.proto",
+    },
+    mode = "0755",
+)
+
+# sha256 for the registry source.json / release manifest (sha256sum on the
+# linux runner, shasum locally on macOS). Mirrors rules_lang_bin_sha256.
+genrule(
+    name = "sql_toolchain_bin_sha256",
+    srcs = [":sql_toolchain_bin"],
+    outs = ["sql_toolchain_bin.tar.gz.sha256"],
+    cmd = "{ sha256sum $(location :sql_toolchain_bin) 2>/dev/null || shasum -a 256 $(location :sql_toolchain_bin); } | cut -d' ' -f1 > $@",
+)
