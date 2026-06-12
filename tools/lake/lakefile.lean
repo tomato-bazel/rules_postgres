@@ -5,16 +5,12 @@ open Lake DSL
 -- scaffolding. Pins the Lean toolchain that the moved-from-Aion content
 -- expects to type-check under.
 --
--- One nominal `require` (batteries) because rules_lean's
--- lake_workspace extension fails analysis if the lake workspace has
--- zero packages — the rule assumes downstream targets need something
--- importable. Batteries is small + cache-backed via Reservoir, so the
--- cost of including it is one fast download.
---
--- Phase 1 scope (PgTy, PgAst, PgPretty, Catalog/*) doesn't actually
--- import batteries; the require is structural. When later phases
--- pull in modules that DO need mathlib or cslib, add them here and
--- bump `lake-manifest.json` accordingly.
+-- Dep-free: rules_lean >= 0.5.1 accepts a zero-package workspace (the
+-- lake_workspace dep-free path), so the old nominal `require batteries`
+-- is gone — it was never imported (Phase 1: PgTy, PgAst, PgPretty,
+-- Catalog/* import only Lean core), and source-building it cost ~15 min
+-- on every CI run that pulled rules_postgres in. When later phases pull in
+-- mathlib/cslib, add the real require here and bump `lake-manifest.json`.
 --
 -- The toolchain version must match Aion's `tools/lake/lean-toolchain`
 -- exactly — both repos need to type-check the same source against the
@@ -23,6 +19,3 @@ open Lake DSL
 -- Decision trail: ~/Documents/rfcs/narrative/pgast-extraction-*.md
 
 package «rules-postgres-lean» where
-
-require batteries from git
-  "https://github.com/leanprover-community/batteries.git" @ "v4.30.0-rc2"
