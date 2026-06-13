@@ -21,7 +21,7 @@ bazel_dep(name = "rules_shell", version = "0.4.1")
 # rules_meson; rules_postgres consumes its `meson_configure` rule and
 # wraps it with PG-specific option defaults + the pg_config.h overlay
 # pre-removal list.
-bazel_dep(name = "rules_meson", version = "0.0.0")
+bazel_dep(name = "rules_meson", version = "0.0.1")
 
 # Lean toolchain. Used by `lean/Pg/*` — the typed PG AST + emit
 # infrastructure that lands here under the PgAst extraction (see
