@@ -50,11 +50,15 @@ typedef FunctionCallInfoBaseData *FunctionCallInfo;
 
 #include "c_oracle_ereport.h"
 
-/* Macros for range checking (matching postgres.h definitions) */
-#define FLOAT4_FITS_IN_INT16(f)  ((f) >= -32768.0f && (f) <= 32767.0f)
-#define FLOAT4_FITS_IN_INT32(f)  ((f) >= -2147483648.0f && (f) <= 2147483647.0f)
-#define FLOAT8_FITS_IN_INT16(d)  ((d) >= -32768.0 && (d) <= 32767.0)
-#define FLOAT8_FITS_IN_INT32(d)  ((d) >= -2147483648.0 && (d) <= 2147483647.0)
+/* Macros for range checking (matching postgres.h definitions).
+ * Upper bound is the exclusive power-of-two `-MIN`, not `<= MAX`: as float4,
+ * 2147483647.0f rounds up to 2147483648.0f, so `<= 2147483647.0f` would wrongly
+ * admit 2^31 (out of int32 range) and then cast it via UB. This mirrors real
+ * Postgres' FLOAT*_FITS_IN_INT* (`>= MIN && < -MIN`). */
+#define FLOAT4_FITS_IN_INT16(f)  ((f) >= -32768.0f && (f) < 32768.0f)
+#define FLOAT4_FITS_IN_INT32(f)  ((f) >= -2147483648.0f && (f) < 2147483648.0f)
+#define FLOAT8_FITS_IN_INT16(d)  ((d) >= -32768.0 && (d) < 32768.0)
+#define FLOAT8_FITS_IN_INT32(d)  ((d) >= -2147483648.0 && (d) < 2147483648.0)
 
 /* ──────────────────────────────────────────────────────────────── */
 /* Bodies below are byte-identical to real Postgres source.         */

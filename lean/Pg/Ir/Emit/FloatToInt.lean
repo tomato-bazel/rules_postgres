@@ -17,7 +17,10 @@ def renderBody (fam : CastFamily) : String :=
   | .toInt16 =>
       prelude ++
       "    num = " ++ rintf ++ "(num);\n" ++
-      "    if num.is_nan() || num < -32768.0 || num > 32767.0 {\n" ++
+      -- Upper bound is the exclusive power of two (`>= 32768.0`), matching
+      -- Postgres' FLOAT*_FITS_IN_INT16 (`< -MIN`). `> 32767.0` would, as f32,
+      -- wrongly admit 32768.0 (32767.0f rounds up) and saturate-cast it.
+      "    if num.is_nan() || num < -32768.0 || num >= 32768.0 {\n" ++
       "        pg_ereport_numeric_value_out_of_range();\n" ++
       "        return 0;\n" ++
       "    }\n" ++
@@ -25,7 +28,10 @@ def renderBody (fam : CastFamily) : String :=
   | .toInt32 =>
       prelude ++
       "    num = " ++ rintf ++ "(num);\n" ++
-      "    if num.is_nan() || num < -2147483648.0 || num > 2147483647.0 {\n" ++
+      -- Exclusive 2^31 upper bound, matching Postgres' FLOAT*_FITS_IN_INT32.
+      -- `> 2147483647.0` would, as f32, wrongly admit 2147483648.0 (the literal
+      -- 2147483647.0f rounds up to 2^31) and saturate-cast it to i32::MAX.
+      "    if num.is_nan() || num < -2147483648.0 || num >= 2147483648.0 {\n" ++
       "        pg_ereport_numeric_value_out_of_range();\n" ++
       "        return 0;\n" ++
       "    }\n" ++
