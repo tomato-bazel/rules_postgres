@@ -23,7 +23,7 @@ exports_files(
 # exist anymore. Lean is THE source; the old Gate 1 (regen idempotence
 # against committed artifacts) becomes tautological and was removed.
 
-wire_all_lean_emits(CLUSTERS)
+wire_all_lean_emits(clusters = CLUSTERS)
 
 # ─── Catalog gen: .dat round-trip across the FULL bootstrap catalog ─
 #
