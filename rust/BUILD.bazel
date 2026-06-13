@@ -24,4 +24,4 @@ package(default_visibility = ["//visibility:public"])
 # — they keep their own `rust/pg_fcinfo/BUILD.bazel` /
 # `rust/pg_palloc/BUILD.bazel` packages.
 
-pg_ir_clusters(CLUSTERS)
+pg_ir_clusters(clusters = CLUSTERS)
