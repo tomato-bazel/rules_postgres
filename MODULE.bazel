@@ -108,11 +108,13 @@ crate.spec(
     package = "proptest",
     version = "1",
 )
+
 # bumpalo: arena allocator backing pg_palloc's MemoryContext adapter.
 crate.spec(
     package = "bumpalo",
     version = "3",
 )
+
 # libc: pg_macaddr / pg_tid / pg_uuid src/lib.rs call libc::memcmp etc.
 crate.spec(
     package = "libc",

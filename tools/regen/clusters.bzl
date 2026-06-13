@@ -751,6 +751,12 @@ def cluster_for_package(pkg):
 
     Used by `pg_ir_cluster()` to auto-detect which cluster a per-crate
     BUILD.bazel belongs to via `native.package_name()`.
+
+    Args:
+      pkg: the package path (e.g. `rust/pg_uuid`).
+
+    Returns:
+      The matching cluster struct from CLUSTERS_BY_CRATE.
     """
     if not pkg.startswith("rust/"):
         fail("expected package under rust/, got %s" % pkg)

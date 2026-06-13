@@ -46,6 +46,12 @@ wire_all_lean_emits(CLUSTERS)
 # exit code is 0 — no committed expected.txt fixture needed.
 lean_main_test(
     name = "gate_catalog_dat_round_trip",
+    # Lean compile + run of all 24 .dat files (6,777 rows; pg_proc
+    # alone is 3,314) exceeds the default 300s test timeout. Under
+    # `lean_regen_test` the slow lean_emit ran as a build action
+    # (no timeout) and only the diff_test was a test; lean_main_test
+    # runs the whole thing in-test, so we need the larger budget.
+    timeout = "long",
     srcs = [
         "Pg/Catalog/Dat.lean",
         "Pg/Catalog/DatRoundTrip.lean",
@@ -82,12 +88,6 @@ lean_main_test(
         "@postgres_src//:src/include/catalog/pg_type.dat",
     ],
     entry = "Pg/Catalog/DatRoundTrip.lean",
-    # Lean compile + run of all 24 .dat files (6,777 rows; pg_proc
-    # alone is 3,314) exceeds the default 300s test timeout. Under
-    # `lean_regen_test` the slow lean_emit ran as a build action
-    # (no timeout) and only the diff_test was a test; lean_main_test
-    # runs the whole thing in-test, so we need the larger budget.
-    timeout = "long",
 )
 
 # Receiving scaffolding for the PgAst extraction (Phase 1).
@@ -160,8 +160,8 @@ lean_test(
 lean_test(
     name = "polyglot_sql_smoke_test",
     srcs = [
-        "@polyglot_ast//lean:Polyglot/Sql/Ast.lean",
         "Polyglot/SqlSmoke.lean",
+        "@polyglot_ast//lean:Polyglot/Sql/Ast.lean",
     ],
     entry = "Polyglot/SqlSmoke.lean",
     visibility = ["//visibility:public"],
@@ -173,20 +173,75 @@ lean_test(
 # Common-Pg consolidation). Each test pins the SQL printer surface +
 # Tightening-E surface-lock for one BodyStmt constructor (or family).
 
-pg_ast_smoke_test(name = "pg_ast_begin_exception_test",       entry = "Pg/AstBeginExceptionTest.lean")
-pg_ast_smoke_test(name = "pg_ast_case_stmt_test",             entry = "Pg/AstCaseStmtTest.lean")
-pg_ast_smoke_test(name = "pg_ast_declare_block_test",         entry = "Pg/AstDeclareBlockTest.lean")
-pg_ast_smoke_test(name = "pg_ast_declare_local_test",         entry = "Pg/AstDeclareLocalTest.lean")
-pg_ast_smoke_test(name = "pg_ast_execute_format_test",        entry = "Pg/AstExecuteFormatTest.lean")
-pg_ast_smoke_test(name = "pg_ast_for_record_in_loop_test",    entry = "Pg/AstForRecordInLoopTest.lean")
-pg_ast_smoke_test(name = "pg_ast_if_else_if_test",            entry = "Pg/AstIfElseIfTest.lean")
-pg_ast_smoke_test(name = "pg_ast_insert_delete_test",         entry = "Pg/AstInsertDeleteTest.lean")
-pg_ast_smoke_test(name = "pg_ast_perform_test",               entry = "Pg/AstPerformTest.lean")
-pg_ast_smoke_test(name = "pg_ast_raise_notice_test",          entry = "Pg/AstRaiseNoticeTest.lean")
-pg_ast_smoke_test(name = "pg_ast_return_query_select_test",   entry = "Pg/AstReturnQuerySelectTest.lean")
-pg_ast_smoke_test(name = "pg_ast_select_into_test",           entry = "Pg/AstSelectIntoTest.lean")
-pg_ast_smoke_test(name = "pg_ast_trigger_d_ext_test",         entry = "Pg/AstTriggerDExtTest.lean")
-pg_ast_smoke_test(name = "pg_ast_update_return_expr_test",    entry = "Pg/AstUpdateReturnExprTest.lean")
+pg_ast_smoke_test(
+    name = "pg_ast_begin_exception_test",
+    entry = "Pg/AstBeginExceptionTest.lean",
+)
+
+pg_ast_smoke_test(
+    name = "pg_ast_case_stmt_test",
+    entry = "Pg/AstCaseStmtTest.lean",
+)
+
+pg_ast_smoke_test(
+    name = "pg_ast_declare_block_test",
+    entry = "Pg/AstDeclareBlockTest.lean",
+)
+
+pg_ast_smoke_test(
+    name = "pg_ast_declare_local_test",
+    entry = "Pg/AstDeclareLocalTest.lean",
+)
+
+pg_ast_smoke_test(
+    name = "pg_ast_execute_format_test",
+    entry = "Pg/AstExecuteFormatTest.lean",
+)
+
+pg_ast_smoke_test(
+    name = "pg_ast_for_record_in_loop_test",
+    entry = "Pg/AstForRecordInLoopTest.lean",
+)
+
+pg_ast_smoke_test(
+    name = "pg_ast_if_else_if_test",
+    entry = "Pg/AstIfElseIfTest.lean",
+)
+
+pg_ast_smoke_test(
+    name = "pg_ast_insert_delete_test",
+    entry = "Pg/AstInsertDeleteTest.lean",
+)
+
+pg_ast_smoke_test(
+    name = "pg_ast_perform_test",
+    entry = "Pg/AstPerformTest.lean",
+)
+
+pg_ast_smoke_test(
+    name = "pg_ast_raise_notice_test",
+    entry = "Pg/AstRaiseNoticeTest.lean",
+)
+
+pg_ast_smoke_test(
+    name = "pg_ast_return_query_select_test",
+    entry = "Pg/AstReturnQuerySelectTest.lean",
+)
+
+pg_ast_smoke_test(
+    name = "pg_ast_select_into_test",
+    entry = "Pg/AstSelectIntoTest.lean",
+)
+
+pg_ast_smoke_test(
+    name = "pg_ast_trigger_d_ext_test",
+    entry = "Pg/AstTriggerDExtTest.lean",
+)
+
+pg_ast_smoke_test(
+    name = "pg_ast_update_return_expr_test",
+    entry = "Pg/AstUpdateReturnExprTest.lean",
+)
 
 # Pg.Ty extension-arm pinning tests (PgType constructors).
 lean_test(
@@ -203,18 +258,18 @@ lean_test(
 lean_test(
     name = "plpgsql_json_reader_test",
     srcs = [
-        "@polyglot_ast//lean:Polyglot/Sql/Ast.lean",
-        "Pg/Ty.lean",
-        "Pg/RegexAst.lean",
-        "Pg/Catalog/Oid.lean",
-        "Pg/Catalog/Tables.lean",
-        "Pg/Catalog/RegTypes.lean",
         "Pg/Ast.lean",
-        "Pg/Spec.lean",
-        "Pg/Stmt.lean",
         "Pg/AstSmart.lean",
+        "Pg/Catalog/Oid.lean",
+        "Pg/Catalog/RegTypes.lean",
+        "Pg/Catalog/Tables.lean",
         "Pg/Plpgsql/JsonReader.lean",
         "Pg/Plpgsql/JsonReaderTest.lean",
+        "Pg/RegexAst.lean",
+        "Pg/Spec.lean",
+        "Pg/Stmt.lean",
+        "Pg/Ty.lean",
+        "@polyglot_ast//lean:Polyglot/Sql/Ast.lean",
     ],
     entry = "Pg/Plpgsql/JsonReaderTest.lean",
     visibility = ["//visibility:public"],
@@ -273,13 +328,13 @@ lean_test(
 lean_test(
     name = "pg_catalog_fold_test",
     srcs = [
-        "Pg/Catalog/Oid.lean",
-        "Pg/Catalog/Tables.lean",
-        "Pg/Catalog/RegTypes.lean",
-        "Pg/Catalog/Snapshot.lean",
-        "Pg/Query/Top.lean",
         "Pg/Catalog/Fold.lean",
         "Pg/Catalog/FoldTest.lean",
+        "Pg/Catalog/Oid.lean",
+        "Pg/Catalog/RegTypes.lean",
+        "Pg/Catalog/Snapshot.lean",
+        "Pg/Catalog/Tables.lean",
+        "Pg/Query/Top.lean",
     ],
     entry = "Pg/Catalog/FoldTest.lean",
     visibility = ["//visibility:public"],
@@ -297,14 +352,14 @@ lean_test(
 lean_test(
     name = "pg_catalog_fold_pipeline_test",
     srcs = [
+        "Pg/Catalog/Fold.lean",
+        "Pg/Catalog/FoldPipelineTest.lean",
         "Pg/Catalog/Oid.lean",
-        "Pg/Catalog/Tables.lean",
         "Pg/Catalog/RegTypes.lean",
         "Pg/Catalog/Snapshot.lean",
+        "Pg/Catalog/Tables.lean",
         "Pg/Query/Top.lean",
-        "Pg/Catalog/Fold.lean",
         "//tools/pgpb_to_lean_ast:SmokeFixtureTyped.lean",
-        "Pg/Catalog/FoldPipelineTest.lean",
     ],
     entry = "Pg/Catalog/FoldPipelineTest.lean",
     visibility = ["//visibility:public"],
@@ -320,11 +375,11 @@ lean_test(
     name = "pg_catalog_snapshot_emit_test",
     srcs = [
         "Pg/Catalog/Oid.lean",
-        "Pg/Catalog/Tables.lean",
         "Pg/Catalog/RegTypes.lean",
         "Pg/Catalog/Snapshot.lean",
         "Pg/Catalog/SnapshotEmit.lean",
         "Pg/Catalog/SnapshotEmitTest.lean",
+        "Pg/Catalog/Tables.lean",
     ],
     entry = "Pg/Catalog/SnapshotEmitTest.lean",
     visibility = ["//visibility:public"],

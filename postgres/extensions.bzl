@@ -248,10 +248,12 @@ cc_library(
 )
 """
 
-
 def _fetch_libpg_query(version):
-    """Use @rules_github//github:repositories.bzl%github_source_repository to
-    fetch the libpg_query archive tag and lay our own BUILD overlay on it."""
+    """Fetch the libpg_query archive tag and overlay our own BUILD.
+
+    Uses @rules_github//github:repositories.bzl%github_source_repository to pull
+    the pganalyze/libpg_query tag, then lays our own BUILD overlay on it.
+    """
     github_source_repository(
         name = "libpg_query",
         repo = "pganalyze/libpg_query",

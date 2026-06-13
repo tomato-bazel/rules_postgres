@@ -36,19 +36,19 @@ genrule(
     name = "smoke_fixture_pgpb",
     srcs = ["smoke_fixture.sql"],
     outs = ["smoke_fixture.pgpb"],
-    tools = ["//tools:sql_to_protobuf"],
     cmd = "$(location //tools:sql_to_protobuf) $< > $@",
+    tools = ["//tools:sql_to_protobuf"],
 )
 
 genrule(
     name = "smoke_fixture_lean",
     srcs = [":smoke_fixture.pgpb"],
     outs = ["SmokeFixture.lean"],
-    tools = [":pgpb_to_lean_ast"],
     cmd = "$(location :pgpb_to_lean_ast) " +
           "--module Pg.Query.SmokeFixture " +
           "--output $@ " +
           "$<",
+    tools = [":pgpb_to_lean_ast"],
 )
 
 # Typed variant: emits a `Pg.Query.Top.TopParseResult` value. The
@@ -59,11 +59,10 @@ genrule(
     name = "smoke_fixture_typed_lean",
     srcs = [":smoke_fixture.pgpb"],
     outs = ["SmokeFixtureTyped.lean"],
-    tools = [":pgpb_to_lean_ast"],
     cmd = "$(location :pgpb_to_lean_ast) " +
           "--typed " +
           "--module SmokeFixtureTyped " +
           "--output $@ " +
           "$<",
+    tools = [":pgpb_to_lean_ast"],
 )
-

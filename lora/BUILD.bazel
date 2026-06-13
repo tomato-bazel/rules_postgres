@@ -37,9 +37,9 @@ load(
 lora_dataset(
     name = "pgir_sft",
     src = "//tools/corpus_extract:sft_messages_v1.jsonl",
-    schema = "messages_v1",
     # 17 clusters total; min validates the file isn't empty / corrupt.
     min_examples = 14,
+    schema = "messages_v1",
 )
 
 # ─── Base model ──────────────────────────────────────────────────────────────
@@ -65,19 +65,19 @@ lora_base_model(
 
 lora_recipe(
     name = "rank16_a32_3epoch",
-    framework = "torchtune",
-    rank = 16,
     alpha = 32,
+    epochs = 3,
+    framework = "torchtune",
+    grad_accum_steps = 8,
+    learning_rate = "2e-4",
+    micro_batch_size = 1,
+    rank = 16,
     target_modules = [
         "q_proj",
         "k_proj",
         "v_proj",
         "o_proj",
     ],
-    learning_rate = "2e-4",
-    micro_batch_size = 1,
-    grad_accum_steps = 8,
-    epochs = 3,
 )
 
 # ─── Train ───────────────────────────────────────────────────────────────────
@@ -92,8 +92,8 @@ lora_recipe(
 
 lora_train(
     name = "pgir_lora_jobspec",
-    base = ":qwen25_15b",
-    recipe = ":rank16_a32_3epoch",
-    dataset = ":pgir_sft",
     backend = "local",
+    base = ":qwen25_15b",
+    dataset = ":pgir_sft",
+    recipe = ":rank16_a32_3epoch",
 )

@@ -106,7 +106,7 @@ def _gen_oracle_shim(base, fn_names, extra_renames, uses_ereport):
         lines += list(_SHIM_EREPORT_TLS)
 
     # Rename preprocessor defines + #include of the vendored body.
-    lines += [""]
+    lines.append("")
     lines += ["#define {fn} {fn}_orig".format(fn = fn) for fn in rename_all]
     lines += [
         "",
@@ -142,6 +142,7 @@ def gate3_cluster(name, pg_source, lean_emit_c, fn_names):
       fn_names: list of C function names whose AST subtrees the
         per-test suite structurally compares.
     """
+
     # libpg_query first — its `pg_config.h` defines INT64_MODIFIER and
     # other build-time-generated symbols, which postgres_src's overlay
     # pg_config.h does not. Search order matters for clang's `-I` chain.
@@ -306,8 +307,15 @@ def _wire_cluster(spec):
         )
 
 def gate2_test_labels(clusters):
-    """Return `//rust:<diff_test>` labels for `:gate2_all`, plus pg_fcinfo's
-    round_trip test (the foundation crate stays in its own package)."""
+    """Collect the rust diff-test labels backing `:gate2_all`.
+
+    Args:
+      clusters: the list of cluster specs to collect diff_test labels from.
+
+    Returns:
+      Sorted `//rust:<diff_test>` labels plus pg_fcinfo's round_trip test
+      (the foundation crate stays in its own package).
+    """
     labels = ["//rust/pg_fcinfo:round_trip"]
     for spec in clusters:
         if spec.diff_test:
@@ -315,7 +323,14 @@ def gate2_test_labels(clusters):
     return sorted(labels)
 
 def gate3_test_labels(clusters):
-    """Return `//rust:gate3_<base>` labels for `:gate3_all`."""
+    """Collect the `//rust:gate3_<base>` labels backing `:gate3_all`.
+
+    Args:
+      clusters: the list of cluster specs to collect gate3 labels from.
+
+    Returns:
+      Sorted `//rust:gate3_<base>` labels.
+    """
     labels = []
     for spec in clusters:
         if spec.lean_emit_c and spec.pg_source and spec.gate3_fn_names:

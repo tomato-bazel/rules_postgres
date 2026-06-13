@@ -60,6 +60,9 @@ def wire_all_lean_emits(clusters):
       - `<c_base>_c_emit`  — (if `spec.lean_emit_c`) real-PG-headers C
         emit (file `<c_base>_c_emit.c`). Consumed by Gate 3's
         `c_ast_dump_single` for clang AST struct diff vs real PG.
+
+    Args:
+      clusters: the list of cluster specs to generate lean_emit targets for.
     """
     for spec in clusters:
         srcs = _cluster_srcs(spec)
