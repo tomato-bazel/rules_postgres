@@ -4,8 +4,8 @@ module(
     compatibility_level = 1,
 )
 
-bazel_dep(name = "platforms", version = "0.0.10")
-bazel_dep(name = "bazel_skylib", version = "1.7.1")
+bazel_dep(name = "platforms", version = "1.0.0")
+bazel_dep(name = "bazel_skylib", version = "1.8.2")
 bazel_dep(name = "rules_cc", version = "0.0.17")
 
 # Shared GitHub-release fetching infrastructure (used by
@@ -14,7 +14,7 @@ bazel_dep(name = "rules_github", version = "0.1.1")
 
 # Non-dev: postgres/defs.bzl's `pg_parse_valid_test` loads `@rules_shell`
 # at consumer-side load time, so consumers must be able to resolve it.
-bazel_dep(name = "rules_shell", version = "0.4.1")
+bazel_dep(name = "rules_shell", version = "0.6.1")
 
 # Hermetic meson + ninja toolchain for `pg_meson_configure` (see
 # postgres/meson.bzl). The general-purpose machinery lives in
