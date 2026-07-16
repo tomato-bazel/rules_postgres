@@ -1,6 +1,6 @@
 module(
     name = "rules_postgres",
-    version = "0.8.1",
+    version = "0.8.2",
     compatibility_level = 1,
 )
 
@@ -31,7 +31,7 @@ bazel_dep(name = "rules_meson", version = "0.0.1")
 # moves on or after 2026-06-01; the scaffolding here lands first as
 # empty stubs + a smoke test so the receiving wiring is proven before
 # any content arrives.
-bazel_dep(name = "rules_lean", version = "0.5.1")
+bazel_dep(name = "rules_lean", version = "0.5.4")
 
 # Minimal Lake workspace pinning the Lean toolchain. Dep-free: Phase 1
 # modules (PgTy + PgAst + PgPretty + Catalog/*) import only Lean core, and
@@ -73,7 +73,7 @@ bazel_dep(name = "rules_lang", version = "0.3.0")
 # directly into rules_lora's `messages_v1` SFT schema. The goal is
 # a small local model that authors Pg.Ir Lean specs, removing the
 # hosted-LLM dependency.
-bazel_dep(name = "rules_lora", version = "0.0.1")
+bazel_dep(name = "rules_lora", version = "0.0.1", dev_dependency = True)
 
 # Dev-only: only loaded by docs/BUILD.bazel.
 bazel_dep(name = "stardoc", version = "0.7.2", dev_dependency = True)
