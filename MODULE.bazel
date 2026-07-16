@@ -1,6 +1,6 @@
 module(
     name = "rules_postgres",
-    version = "0.8.0",
+    version = "0.8.1",
     compatibility_level = 1,
 )
 
@@ -101,13 +101,20 @@ register_toolchains(
 )
 
 # crate_universe: provides proptest (and any future test-only deps).
-# isolate=True so our @crates universe doesn't collide with sibling
-# repos that also register a `crates` extension.
+#
+# NOT isolated, deliberately. `isolate` separates MULTIPLE usages of the same
+# extension WITHIN one module; we have exactly one, and `use_repo(crate, "crates")`
+# already binds @crates into THIS module's namespace — a sibling repo's `crates`
+# lives in its own namespace and cannot collide. So isolate bought nothing, and it
+# cost every consumer: it is still an experimental parameter, so bazel refuses to
+# even execute this MODULE.bazel unless the ROOT module passes
+# --experimental_isolated_extension_usages. That broke aion/sql's CI outright
+# ("Error computing the main repository mapping: rules_postgres@0.8.0"), and is a
+# tax this module has no business levying on its dependents.
 crate = use_extension(
     "@rules_rust//crate_universe:extension.bzl",
     "crate",
     dev_dependency = True,
-    isolate = True,
 )
 crate.spec(
     package = "proptest",
