@@ -1,6 +1,6 @@
 module(
     name = "rules_postgres",
-    version = "0.8.2",
+    version = "0.8.3",
     compatibility_level = 1,
 )
 
@@ -31,7 +31,7 @@ bazel_dep(name = "rules_meson", version = "0.0.1")
 # moves on or after 2026-06-01; the scaffolding here lands first as
 # empty stubs + a smoke test so the receiving wiring is proven before
 # any content arrives.
-bazel_dep(name = "rules_lean", version = "0.5.4")
+bazel_dep(name = "rules_lean", version = "0.5.5")
 
 # Minimal Lake workspace pinning the Lean toolchain. Dep-free: Phase 1
 # modules (PgTy + PgAst + PgPretty + Catalog/*) import only Lean core, and
@@ -64,8 +64,12 @@ register_toolchains("@rules_postgres_lake//:lean_toolchain_def")
 # 0.3.0 — the atlas gained a generic `Polyglot.Sql.Ast.Stmt` (+ Java);
 # Pg.Stmt's pretty-printer hides it (see lean/Pg/Pretty.lean). Pinned here
 # so rules_postgres CI tests against the same atlas its consumers
-# (aion/lean) force via single_version_override.
-bazel_dep(name = "rules_lang", version = "0.3.0")
+# (aion/sql, aion/lean) force via single_version_override — they now force
+# 0.4.4, so this tracks them. (The atlas olean itself is tied to a fixed
+# `atlas-v*` release, not the module version, so this does not move it.)
+# 0.4.4 also drops rules_lang's nominal batteries `require` — the same
+# ~200-module source build this repo's own lakefile removed at 0.5.1.
+bazel_dep(name = "rules_lang", version = "0.4.4")
 
 # rules_lora — Bazel-native LoRA fine-tuning. Used by Pg.Ir's
 # local-model fine-tune track: the Stream A LLM-authoring loop's
