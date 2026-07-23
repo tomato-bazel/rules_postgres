@@ -8,6 +8,12 @@ bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "bazel_skylib", version = "1.8.2")
 bazel_dep(name = "rules_cc", version = "0.0.17")
 
+# //release: bundle the libpg_query-linked SQL-toolchain binary into a
+# distributable tarball so consumers import the prebuilt parser instead of
+# rebuilding libpg_query (the heavy meson build). Mirrors
+# @rules_lang//release:rules_lang_bin + the polyglot atlas olean.
+bazel_dep(name = "rules_pkg", version = "1.0.1")
+
 # Shared GitHub-release fetching infrastructure (used by
 # postgres/extensions.bzl to pull libpg_query archive tags).
 bazel_dep(name = "rules_github", version = "0.1.1")
