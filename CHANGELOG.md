@@ -4,6 +4,40 @@ All notable changes to rules_postgres. The format is loosely
 [Keep a Changelog](https://keepachangelog.com/) — version headers
 mirror the published bazel-registry entries.
 
+## 0.11.0 — EXISTS over several aliased tables
+
+Third gap found the same way as the two in 0.10.0: by emitting the `savvifi/graph`
+substrate schema against this AST.
+
+**`ExprExt.existsInAliasedMany`.** Three of the four RLS policies on `graph.statement`
+emit fine with `existsInAliasedQualified` — each needs one correlated subquery over
+`graph.resource`. The fourth joins the policy table to the predicate resource:
+
+```sql
+NOT EXISTS (SELECT 1 FROM graph.statement_policy AS sp
+            JOIN graph.resource AS prd ON prd.id = statement.predicate_id
+            WHERE sp.is_active AND …)
+```
+
+and the one-table arm takes exactly one table plus an alias — so the substrate's subtlest
+policy, the clause that stops a caller wiring a permission-granting edge to a resource
+they can merely write, stayed hand-written while its three siblings became emitted.
+
+Rendered as a **comma-join** (`FROM a AS x, b AS y WHERE p`), which is exactly equivalent
+to `FROM a AS x JOIN b AS y ON p` and keeps the printer free of a join grammar: no join
+kinds, no ON/USING distinction, no nesting. The join predicate and the outer correlation
+both become conjuncts of the condition. If an OUTER join is ever needed the equivalence
+stops holding and a real join clause becomes the right answer; nothing needs one yet.
+
+`existsInAliasedQualified` is NOT replaced — it is the common shape, and `[(t, "r")]`
+reads worse than `t "r"` at every call site. A test asserts the singleton renders
+IDENTICALLY, so moving between them is a refactor rather than a change in emitted SQL.
+
+Non-emptiness is a caller obligation, documented rather than typed: an empty list renders
+`FROM  WHERE`, which postgres rejects loudly at apply time, and callers pass literals.
+
+Additive — no existing constructor, signature or rendering changes.
+
 ## 0.10.0 — ALTER TABLE for row-level security, and an opclass on IndexElem
 
 Both gaps were found by emitting a real schema against this AST — the
