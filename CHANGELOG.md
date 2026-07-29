@@ -4,6 +4,41 @@ All notable changes to rules_postgres. The format is loosely
 [Keep a Changelog](https://keepachangelog.com/) — version headers
 mirror the published bazel-registry entries.
 
+## 0.10.0 — ALTER TABLE for row-level security, and an opclass on IndexElem
+
+Both gaps were found by emitting a real schema against this AST — the
+`savvifi/graph` substrate, which renders four tables, five indexes and four
+RLS policies from a Lean catalog. Everything else it needed was already
+here; these were the only two things it could not say.
+
+**`Stmt.alterTable`.** The inductive had 13 constructors, all `CREATE`, so a
+schema emitter could not express `ALTER TABLE … ENABLE/FORCE ROW LEVEL
+SECURITY`. Four actions: `enable` / `disable` / `force` / `noForce`.
+
+ENABLE vs FORCE is not cosmetic. `ENABLE` makes policies apply to ordinary
+roles but leaves the table OWNER exempt; `FORCE` removes that exemption. A
+schema carrying `ENABLE` and no `FORCE`, read by a service that owns its
+tables, has policies that never run — and `pg_policy` looks identical either
+way, so nothing surfaces it. An emitter that cannot say `FORCE` cannot state
+the property that makes its own policies load-bearing.
+
+`ADD COLUMN` / `DROP COLUMN` are the obvious next arms and are deliberately
+omitted: a migration DSL that can drop columns raises a different safety
+question, and nothing needs it yet. One action per statement rather than a
+list — postgres renders it that way, and it keeps an emitted migration
+diffable line by line.
+
+**`IndexElem.opclass`.** Was a column name and nothing else. Postgres picks a
+default operator class per (type, access method) and for most columns that
+default is right, so the field is OPTIONAL and every existing emit is
+unchanged — pinned by a regression test. It matters where the default is not
+the intended one: an `ltree` column under GiST has more than one sensible
+opclass, and which is chosen decides whether `<@` ancestor matching uses the
+index or scans.
+
+11 new examples in `lean/Pg/AstAlterTableTest.lean` by `native_decide`. Full
+suite 25/25 on linux and macos.
+
 ## 0.9.0 — the Lean toolchain registration is dev-scoped (consumers stop paying for it)
 
 `register_toolchains("@rules_postgres_lake//:lean_toolchain_def")` was at module
