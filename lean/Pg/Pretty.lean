@@ -799,9 +799,12 @@ def printCreateTable (t : CreateTableStmt) : String :=
 -- ============================================================================
 
 /-- Render a single index column element — currently just the
-    column name (operator-class / collation / sort-order extensions
-    join when emit coverage requires them). -/
-def printIndexElem (e : IndexElem) : String := e.column
+    column name, optionally followed by an operator class. Collation
+    and sort-order extensions join when emit coverage requires them. -/
+def printIndexElem (e : IndexElem) : String :=
+  match e.opclass with
+  | none    => e.column
+  | some oc => e.column ++ " " ++ oc
 
 /-- Render a comma-separated index column list. -/
 def printIndexColumns (es : List IndexElem) : String :=
@@ -1064,6 +1067,17 @@ def printCreateSchema (s : CreateSchemaStmt) : String :=
   bannerStr ++
   "CREATE SCHEMA " ++ ifne ++ s.name.toSql ++ authStr ++ ";\n"
 
+/-- Render an ALTER TABLE statement. Layout:
+      {banner}\n
+      ALTER TABLE name ACTION;\n -/
+def printAlterTable (a : AlterTableStmt) : String :=
+  let bannerStr :=
+    match a.banner with
+    | [] => ""
+    | lines => String.join (lines.map (fun l => l ++ "\n")) ++ "\n"
+  bannerStr ++
+  "ALTER TABLE " ++ a.name.toSql ++ " " ++ a.action.toSql ++ ";\n"
+
 /-- Render a CREATE DOMAIN statement. Layout:
     {banner}\n
     CREATE DOMAIN name AS base_type[\n  CHECK (check_expr)];\n -/
@@ -1168,5 +1182,6 @@ def printStmt : Stmt → String
   | .createDomain                 d  => printCreateDomain d
   | .createType                   t  => printCreateType t
   | .createPolicy                 p  => printCreatePolicy p
+  | .alterTable                   a  => printAlterTable a
 
 end Pg.Pretty

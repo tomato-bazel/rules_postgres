@@ -210,6 +210,11 @@ pg_ast_smoke_test(
 )
 
 pg_ast_smoke_test(
+    name = "pg_ast_alter_table_test",
+    entry = "Pg/AstAlterTableTest.lean",
+)
+
+pg_ast_smoke_test(
     name = "pg_ast_insert_delete_test",
     entry = "Pg/AstInsertDeleteTest.lean",
 )

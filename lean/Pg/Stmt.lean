@@ -602,6 +602,16 @@ def IndexMethod.toSql : IndexMethod → String
     operator-class clauses). -/
 structure IndexElem where
   column : String
+  /-- Optional operator class, e.g. `gist_ltree_ops` on an `ltree` GiST index.
+
+      Postgres picks a default opclass per (type, access method), and for the
+      common cases that default is what you want — so this stays optional. It
+      matters when the default is not the intended one: an `ltree` column under
+      GiST has more than one sensible opclass, and which one is chosen decides
+      whether `<@` ancestor matching uses the index or sequentially scans. That
+      is a correctness-shaped performance property, and a schema that cannot
+      state it has to hope. -/
+  opclass : Option String := none
 deriving DecidableEq
 
 /-- A complete CREATE INDEX statement. Mirrors libpg_query's
@@ -847,8 +857,49 @@ structure CreatePolicyStmt where
   /-- Optional banner comment lines. -/
   banner : List String := []
 
-/-- A top-level SQL statement. Designed to grow with ALTER TABLE
-    / etc. as the savvi-studio schema sweep encounters them. -/
+/-- What an `ALTER TABLE` does to its target.
+
+    Deliberately narrow: the row-level-security toggles, which are the ones a
+    schema emitter cannot currently express at all. `ADD COLUMN` / `DROP COLUMN`
+    are the obvious next arms and are omitted until something needs them —
+    a migration DSL that can drop columns is a different safety question.
+
+    ENABLE vs FORCE is the distinction that motivates this whole structure, and
+    it is not cosmetic. `ENABLE` makes policies apply to ordinary roles but
+    leaves the table OWNER exempt; `FORCE` removes that exemption. A schema with
+    ENABLE and no FORCE, read by a service that owns its tables, has policies
+    that never run — and `pg_policy` looks identical either way, so nothing
+    surfaces it. That is a property worth having a kernel able to state. -/
+inductive AlterTableAction where
+  | enableRowLevelSecurity   : AlterTableAction
+  | disableRowLevelSecurity  : AlterTableAction
+  | forceRowLevelSecurity    : AlterTableAction
+  | noForceRowLevelSecurity  : AlterTableAction
+deriving DecidableEq, Repr
+
+/-- Render one action as its SQL clause. -/
+def AlterTableAction.toSql : AlterTableAction → String
+  | .enableRowLevelSecurity  => "ENABLE ROW LEVEL SECURITY"
+  | .disableRowLevelSecurity => "DISABLE ROW LEVEL SECURITY"
+  | .forceRowLevelSecurity   => "FORCE ROW LEVEL SECURITY"
+  | .noForceRowLevelSecurity => "NO FORCE ROW LEVEL SECURITY"
+
+/-- `ALTER TABLE <name> <action>;`
+
+    One action per statement, matching postgres's own rendering and keeping the
+    emitted migration diffable line by line — a multi-action ALTER is harder to
+    read in a review than two statements, and postgres accepts both. -/
+structure AlterTableStmt where
+  /-- Schema-qualified target (e.g. `graph.resource`). -/
+  name : Identifier
+  /-- The action to apply. -/
+  action : AlterTableAction
+  /-- Optional banner comment lines. -/
+  banner : List String := []
+deriving DecidableEq, Repr
+
+/-- A top-level SQL statement. Grows as the savvi-studio schema sweep
+    encounters new shapes. -/
 inductive Stmt where
   | createFunction               : CreateFunctionStmt → Stmt
   | createTable                  : CreateTableStmt → Stmt
@@ -863,6 +914,7 @@ inductive Stmt where
   | createDomain                 : CreateDomainStmt → Stmt
   | createType                   : CreateTypeStmt → Stmt
   | createPolicy                 : CreatePolicyStmt → Stmt
+  | alterTable                   : AlterTableStmt → Stmt
 
 
 end Pg.Stmt
