@@ -1,6 +1,6 @@
 module(
     name = "rules_postgres",
-    version = "0.8.3",
+    version = "0.9.0",
     compatibility_level = 1,
 )
 
@@ -50,7 +50,22 @@ lake.workspace(
 )
 use_repo(lake, "rules_postgres_lake")
 
-register_toolchains("@rules_postgres_lake//:lean_toolchain_def")
+# dev_dependency: this toolchain builds rules_postgres's OWN Lean targets, it is
+# not part of rules_postgres's surface — consumers take the postgres/SQL rules and
+# register their own Lean toolchain. Registration is EAGER: Bazel loads the
+# registered toolchain's package to read its `toolchain_type`, which runs the
+# `lake_workspace` repository rule. Non-dev, that propagates to every transitive
+# consumer, so a pure-Rust build in a repo that merely `bazel_dep`s on
+# rules_postgres materialized @rules_postgres_lake before analyzing anything — and
+# a consumer cannot suppress a registration made inside a dependency module.
+#
+# Dev registrations STILL APPLY when rules_postgres is the ROOT module, so this
+# repo's own //lean/... targets are unaffected. Same shape as the
+# `@rust_toolchains//:all` registration below, and what rules_lean and spec do.
+register_toolchains(
+    "@rules_postgres_lake//:lean_toolchain_def",
+    dev_dependency = True,
+)
 
 # rules_lang — the public rules layer. Provides:
 #   * @rules_lang//lean:atlas — Polyglot.* as prebuilt, toolchain-matched

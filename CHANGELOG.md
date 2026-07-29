@@ -4,6 +4,36 @@ All notable changes to rules_postgres. The format is loosely
 [Keep a Changelog](https://keepachangelog.com/) — version headers
 mirror the published bazel-registry entries.
 
+## 0.9.0 — the Lean toolchain registration is dev-scoped (consumers stop paying for it)
+
+`register_toolchains("@rules_postgres_lake//:lean_toolchain_def")` was at module
+scope, non-dev. Registration is EAGER: Bazel loads a registered toolchain's
+package to read its `toolchain_type`, and loading that package runs the
+`lake_workspace` repository rule. Non-dev, that propagates to every transitive
+consumer — so a repo that takes rules_postgres as a `bazel_dep` materialized
+`@rules_postgres_lake` (Lean toolchain download + extraction) during ANALYSIS of
+targets with no Lean anywhere in their graph, including pure-Rust ones. A
+consumer cannot opt out: no flag suppresses a registration made inside a
+dependency module.
+
+It is now `dev_dependency = True`, matching the `@rust_toolchains//:all`
+registration in this same file. Nothing else changes:
+
+- **rules_postgres's own Lean targets are unaffected.** Dev registrations still
+  apply when the module is ROOT, which covers this repo's builds and CI —
+  `//lean/...`, the `pg_ir_cluster` `lean_emit` targets under `//tools/regen`,
+  and the `sql_toolchain` emit rules all resolve the toolchain as before.
+- **No consumer relied on it.** aion — the only repo that `bazel_dep`s on
+  rules_postgres — registers its own lake workspace via
+  `--extra_toolchains=@lake_deps//:lean_toolchain_def` under `--config=lean`, and
+  deliberately does NOT register it at module scope for exactly the reason above.
+
+Minor rather than patch because this removes a toolchain from rules_postgres's
+transitive surface: a consumer that was silently resolving `@rules_postgres_lake`
+for its own `lean_*` targets will now fail toolchain resolution and must register
+its own. That is the correct outcome — this toolchain is pinned to
+rules_postgres's `lean-toolchain`, not the consumer's.
+
 ## 0.7.0 — Catalog projection: C tool retired; Lean fold is canonical
 
 The kernel-checked Lean fold has been the production backend since
