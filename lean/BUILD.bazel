@@ -215,6 +215,11 @@ pg_ast_smoke_test(
 )
 
 pg_ast_smoke_test(
+    name = "pg_ast_exists_many_test",
+    entry = "Pg/AstExistsManyTest.lean",
+)
+
+pg_ast_smoke_test(
     name = "pg_ast_insert_delete_test",
     entry = "Pg/AstInsertDeleteTest.lean",
 )

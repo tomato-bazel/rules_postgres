@@ -112,6 +112,26 @@ inductive ExprExt where
       (alias : String)
       (cond : Polyglot.Sql.Ast.Expr ExprExt)
     : ExprExt
+  -- EXISTS over SEVERAL aliased tables (A1h).
+  --
+  -- Rendered as a comma-join -- `FROM a AS x, b AS y WHERE ...` -- which is exactly
+  -- equivalent to an INNER JOIN with the join predicate in the WHERE, and keeps the
+  -- printer free of a join-clause grammar. The correlation and the join condition are
+  -- both just conjuncts of `cond`, where they read naturally:
+  --
+  --   EXISTS (SELECT 1 FROM graph.statement_policy AS sp, graph.resource AS prd
+  --           WHERE prd.id = statement.predicate_id AND sp.is_active AND ...)
+  --
+  -- `existsInAliasedQualified` is the one-table case and is NOT replaced by this: it is
+  -- the overwhelmingly common shape, and a singleton list reads worse at every call site.
+  --
+  -- An empty `tables` would print `FROM  WHERE`, which is not valid SQL. Callers pass a
+  -- literal list, so this is a well-formedness obligation on the caller rather than
+  -- something the printer can repair -- see `existsInAliasedMany_nonempty` in Spec.lean.
+  | existsInAliasedMany
+      (tables : List (Identifier × String))
+      (cond : Polyglot.Sql.Ast.Expr ExprExt)
+    : ExprExt
   -- pg_catalog table in EXISTS (A1g)
   | existsInAliasedBuiltin
       (table : String)

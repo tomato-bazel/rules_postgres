@@ -525,6 +525,23 @@
         }
       }
     },
+    "@@rules_meson+//meson:meson_tools.bzl%meson_tools": {
+      "general": {
+        "bzlTransitiveDigest": "ebrul277rzJugdwOTp6Sktf1pEfohYTAmdh8CgPS9p4=",
+        "usagesDigest": "xidzZItOqTtflVMHuY5xSZHOuqxAGPlIPb4Ico0XCVU=",
+        "recordedInputs": [],
+        "generatedRepoSpecs": {
+          "meson_dist": {
+            "repoRuleId": "@@rules_meson+//meson:meson_tools.bzl%_meson_dist_repository",
+            "attributes": {}
+          },
+          "ninja_dist": {
+            "repoRuleId": "@@rules_meson+//meson:meson_tools.bzl%_ninja_dist_repository",
+            "attributes": {}
+          }
+        }
+      }
+    },
     "@@rules_python+//python/extensions:config.bzl%config": {
       "general": {
         "bzlTransitiveDigest": "dzD8Q2YmrP3fz8saWLHPmlwPLO91ImtTmP/c9JKTStM=",

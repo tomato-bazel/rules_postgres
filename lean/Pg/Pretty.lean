@@ -83,6 +83,10 @@ def printExpr : Expr → String
   | .ext (.existsInAliasedQualified table alias cond) =>
       "EXISTS (SELECT 1 FROM " ++ Identifier.toSql table ++ " AS " ++ alias ++
         " WHERE " ++ printExpr cond ++ ")"
+  | .ext (.existsInAliasedMany tables cond) =>
+      let froms := String.intercalate ", "
+        (tables.map (fun (t, a) => Identifier.toSql t ++ " AS " ++ a))
+      "EXISTS (SELECT 1 FROM " ++ froms ++ " WHERE " ++ printExpr cond ++ ")"
   | .ext (.existsInAliasedBuiltin table alias cond) =>
       "EXISTS (SELECT 1 FROM " ++ table ++ " AS " ++ alias ++
         " WHERE " ++ printExpr cond ++ ")"
