@@ -4,6 +4,58 @@ All notable changes to rules_postgres. The format is loosely
 [Keep a Changelog](https://keepachangelog.com/) — version headers
 mirror the published bazel-registry entries.
 
+## 0.12.0 — `Pg.*` as compiled oleans
+
+Consumers take `Pg.*` as **source**: the `exports_files` glob in `lean/BUILD.bazel`
+plus ~200 raw source labels per consumer BUILD file, recompiled in every consumer.
+This release adds the compiled alternative, and proves it works.
+
+**`//lean:pg_core`** compiles the ten-file AST core (`Pg.{Ty,RegexAst,Ast,Stmt,AstSmart,Pretty,ProceduralSurface}`
++ `Pg.Catalog.{Oid,Tables,RegTypes}`) into a `lean_library`. **`//lean:pg_core_oleans`**
+publishes it as a deployable archive — 3.2 MB, ten oleans.
+
+The load-bearing question was **composition**, not whether the rules exist.
+`@rules_lang//lean:atlas` is an *imported* olean and `Pg/Ast.lean` imports
+`Polyglot.Sql.Ast` from it, so `:pg_core` is a compiled library built on top of a
+prebuilt one, and the archive republishes that. One hop was proven; two was not,
+and this repo had never used `lean_library` or `lean_olean_archive` anywhere — the
+only evidence anywhere was rules_lean's two-file example.
+
+It composes. **`//lean:pg_core_compiled_consume_test`** compiles
+`Pg/AstAlterTableTest.lean` against the compiled library via `deps`, listing only
+the test file, and passes.
+
+**What it saves.** Sixteen targets here re-list the core today:
+
+```
+source-listing:  16 targets x 11 files = 176 file-compiles
+olean seam:      10 (once)  +  16      =  26 file-compiles   6.8x fewer
+```
+
+rules_lean compiles a whole library in **one action**, so this removes per-target
+wholesale recompilation rather than shaving it.
+
+**`rules_lean` 0.5.5 → 0.6.1.** Not cosmetic. 0.5.5's `lean_olean_archive` tars
+the import root with `-h`, reading through a symlink farm into bazel-out, and GNU
+tar exits 1 on `file changed as we read it` where BSD tar only warns — so the
+archive step worked on macOS and failed on every linux/RBE build. 0.6.1 stages
+with `cp -RL` first and makes the archive reproducible.
+
+**CI now covers `//lean/...`, and the job name stopped lying.** The fast gate was
+named `bazel test //...` while running only `//docs/... //examples/...` — so the
+Lean model, the bulk of this repo, was outside CI entirely. Renamed to what it
+does, and a new `compiled-olean seam (linux)` job builds the library, the archive
+and the consume test, then asserts the archive contains no symlinks and at least
+ten oleans. Linux only: macOS cannot exhibit the tar failure, so matrixing it
+would only re-prove the immune platform.
+
+**Note for anyone extending the core.** `PG_AST_CORE_SRCS` is exported from
+`lean/pg_ast_smoke.bzl` and shared by `:pg_core` and the per-constructor smoke
+tests, so the compiled and source paths cannot drift. Also worth knowing:
+`Pg/Smoke.lean` is *not* the AST core — its closure reaches
+`Pg.Catalog.Generated` (4,686 lines) — which is why the consume test uses
+`AstAlterTableTest` instead.
+
 ## 0.11.0 — EXISTS over several aliased tables
 
 Third gap found the same way as the two in 0.10.0: by emitting the `savvifi/graph`
