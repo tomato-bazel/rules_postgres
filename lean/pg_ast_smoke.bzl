@@ -15,7 +15,7 @@ load("@rules_lean//lean:lean.bzl", "lean_test")
 # Common srcs prefix for Pg/AstX*Test.lean files. The generic SQL kernel
 # (`Polyglot.Sql.Ast`) arrives prebuilt via the `@rules_lang//lean:atlas`
 # olean dep (see `_PG_AST_SMOKE_DEPS`), not recompiled from source.
-_PG_AST_SMOKE_SRCS = [
+PG_AST_CORE_SRCS = [
     "Pg/Ty.lean",
     "Pg/RegexAst.lean",
     "Pg/Catalog/Oid.lean",
@@ -27,6 +27,12 @@ _PG_AST_SMOKE_SRCS = [
     "Pg/Pretty.lean",
     "Pg/ProceduralSurface.lean",
 ]
+
+# Exported (was `_PG_AST_SMOKE_SRCS`) so `//lean:pg_core` can compile exactly
+# this closure into a library. Keeping one list means the compiled-olean seam
+# and the source-listing smoke tests cannot drift apart — if a module joins the
+# core, both paths pick it up.
+_PG_AST_SMOKE_SRCS = PG_AST_CORE_SRCS
 
 # Prebuilt generic SQL kernel olean (`Polyglot.Sql.Ast`).
 _PG_AST_SMOKE_DEPS = ["@rules_lang//lean:atlas"]

@@ -1,7 +1,66 @@
-load("@rules_lean//lean:lean.bzl", "lean_main_test", "lean_test")
-load("//lean:pg_ast_smoke.bzl", "pg_ast_smoke_test")
+load("@rules_lean//lean:lean.bzl", "lean_library", "lean_main_test", "lean_olean_archive", "lean_test")
+load("//lean:pg_ast_smoke.bzl", "PG_AST_CORE_SRCS", "pg_ast_smoke_test")
 load("//tools/regen:clusters.bzl", "CLUSTERS")
 load("//tools/regen:lean_emits.bzl", "wire_all_lean_emits")
+
+# ─── SPIKE: the two-hop compiled-olean seam ────────────────────────
+#
+# Question this answers: can `Pg.*` be published as compiled oleans and
+# consumed WITHOUT recompiling, on real content?
+#
+# It matters because every consumer today takes Pg.* as SOURCE — the
+# `exports_files` below plus ~200 raw source labels per consumer BUILD file —
+# and recompiles the whole model. The leangres module split is justified
+# entirely by replacing that with fetched oleans. That justification is
+# currently unvalidated: this repo has never used `lean_library` or
+# `lean_olean_archive` anywhere, so the only evidence is rules_lean's own
+# two-file toy example.
+#
+# The specific unproven step is COMPOSITION. `@rules_lang//lean:atlas` is an
+# imported olean, and Pg/Ast.lean imports `Polyglot.Sql.Ast` from it. So
+# `:pg_core` is a compiled library built ON TOP OF a prebuilt library, and
+# `:pg_core_oleans` republishes that. Hop 1 (consume an imported olean) is
+# proven by the lean_tests below. Hop 2 (a library that consumes one and is
+# itself published) is not, and the six-module topology needs N hops.
+#
+# Real content, not a toy: mutual recursion in Pg.Ast's ExprExt block, a
+# nested inductive (`Expr Ext` carrying `List (Expr Ext)`), and the
+# 1,191-line printer.
+lean_library(
+    name = "pg_core",
+    srcs = PG_AST_CORE_SRCS,
+    visibility = ["//visibility:public"],
+    deps = ["@rules_lang//lean:atlas"],
+)
+
+lean_olean_archive(
+    name = "pg_core_oleans",
+    library = ":pg_core",
+    visibility = ["//visibility:public"],
+)
+
+# The payoff check. `pg_ast_smoke_test` compiles this same entry by re-listing
+# all ten core sources in `srcs`; this target takes the COMPILED library via
+# `deps` and lists only the test file. If it is green, a consumer can drop its
+# source list — which is the entire build-speed argument for the module split.
+#
+# Entry choice matters and cost one iteration to learn: `Pg/Smoke.lean` looks
+# like the natural pick but its import closure reaches
+# `Pg.Catalog.{Snapshot,Resolution,AttributeRef,Generated}` — including the
+# 4,686-line generated catalog — so it is NOT the AST core. AstAlterTableTest
+# imports exactly `Pg.{Ast,Stmt,AstSmart,Pretty}`, all inside `:pg_core`.
+#
+# That divergence is itself a finding: the AST closure and the catalog closure
+# are genuinely separate, which is the evidence for splitting `pgcatalog`
+# (where `Generated` lives, changing only on a Postgres bump) away from
+# `pgast` (edited daily).
+lean_test(
+    name = "pg_core_compiled_consume_test",
+    srcs = ["Pg/AstAlterTableTest.lean"],
+    entry = "Pg/AstAlterTableTest.lean",
+    visibility = ["//visibility:public"],
+    deps = [":pg_core"],
+)
 
 # Expose all Pg.* Lean source files publicly so cross-repo
 # consumers (e.g. Aion's lean_test targets) can list them in
