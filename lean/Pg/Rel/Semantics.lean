@@ -79,12 +79,27 @@ def evalPred : Pred → Row → Three
     | .no => .yes
     | .unknown => .unknown
 
-/-- Plan nodes. Enough to state the first rewrites; joins are the next
-increment and are where outer-join pushdown unsoundness lives. -/
+/-- Whether two rows join, on equality of their first column.
+
+⛔ NULL DOES NOT JOIN TO NULL. `a.x = b.x` is UNKNOWN when either is null, and a
+join keeps only TRUE — so two rows that are both null on the key do NOT match.
+This is the same rule as `WHERE`, and it is the reason the outer join below has
+anything to pad. -/
+def joins (r s : Row) : Bool :=
+  match cell r 0, cell s 0 with
+  | .num a, .num b => a == b
+  | _, _ => false
+
+/-- Plan nodes.
+
+`leftJoin` carries the width of its right side, because a row of the left that
+matches nothing is emitted PADDED WITH NULLS to that width — and those nulls are
+what make predicate pushdown unsound below. -/
 inductive Plan where
   | scan (t : String)
   | filter (p : Pred) (child : Plan)
   | union (a b : Plan)
+  | leftJoin (a b : Plan) (rightWidth : Nat)
 deriving DecidableEq, Repr
 
 /-- What a plan MEANS, against a database that maps a name to a bag of rows.
@@ -95,6 +110,16 @@ def denote (db : String → Table) : Plan → Table
   | .scan t => db t
   | .filter p c => (denote db c).filter (fun r => evalPred p r == Three.yes)
   | .union a b => denote db a ++ denote db b
+  | .leftJoin a b w =>
+    (denote db a).flatMap (fun r =>
+      let m := (denote db b).filter (joins r)
+      -- The preserved side keeps every row. One that matched nothing comes
+      -- back padded with nulls, which is the whole character of an outer join.
+      -- Written as ONE map over either the matches or a single null row, so
+      -- that both branches visibly share the left prefix — which is what
+      -- `everyRowKeepsItsLeft` needs and what makes the pushdown rule provable
+      -- rather than merely believable.
+      ((if m.isEmpty then [List.replicate w Val.null] else m)).map (fun s => r ++ s))
 
 /-- Two plans are equivalent when they mean the same thing on every database.
 
@@ -160,5 +185,66 @@ theorem no_row_is_kept_twice (p : Pred) (r : Row) :
     ¬((evalPred p r = .yes) ∧ (evalPred (.not p) r = .yes)) := by
   intro ⟨h1, h2⟩
   simp [evalPred, h1] at h2
+
+/-- Every row a left row produces carries that left row as its prefix, so a
+predicate that reads only the prefix decides the whole group at once.
+
+This is why pushing into the PRESERVED side is sound and pushing into the other
+one is not: one predicate sees the same values before and after the join, and
+the other sees nulls that did not exist before it. -/
+theorem everyRowKeepsItsLeft (p : Pred) (r : Row) (rows : Table)
+    (hp : ∀ x y : Row, evalPred p (x ++ y) = evalPred p x) :
+    (rows.map (fun s => r ++ s)).filter (fun x => evalPred p x == Three.yes)
+      = if evalPred p r == Three.yes then rows.map (fun s => r ++ s) else [] := by
+  induction rows with
+  | nil => simp
+  | cons s rest ih =>
+    by_cases h : evalPred p r == Three.yes
+    · simp [hp, h] at ih ⊢
+      exact ih
+    · simp [hp, h] at ih ⊢
+      exact ih
+
+/- ── The classic planner bug ───────────────────────────────────────────── -/
+
+/-- **A predicate on the null-padded side CANNOT be pushed below an outer
+join.**
+
+⛔ THE BUG THIS FILE WAS BUILT TO CATCH, and the one every real planner has had.
+
+    SELECT * FROM a LEFT JOIN b ON a.k = b.k WHERE b.v = 5
+
+Pushing `b.v = 5` into the scan of `b` looks obviously sound — it is a
+restriction on `b`, and `b` is right there. It is not sound, and the two differ
+on the rows of `a` THAT MATCH NOTHING:
+
+  * filtering ABOVE the join sees those rows already padded with nulls, so
+    `b.v = 5` is UNKNOWN and they are dropped;
+  * filtering BELOW the join shrinks `b` first, so those rows still match
+    nothing and come back PADDED and kept.
+
+One keeps them, the other does not. The witness needs only a left row with no
+partner. -/
+theorem pushdown_below_an_outer_join_is_unsound :
+    ∃ (db : String → Table) (p : Pred) (a b : String) (w : Nat),
+      denote db (.filter p (.leftJoin (.scan a) (.scan b) w))
+        ≠ denote db (.leftJoin (.scan a) (.filter p (.scan b)) w) := by
+  refine ⟨fun t => if t = "a" then [[Val.num 1]] else [], .eqNum 1 5, "a", "b", 1, ?_⟩
+  simp [denote, evalPred, cell]
+
+/- ⚠ WHAT IS *NOT* PROVED HERE, AND SHOULD BE NEXT.
+    
+The mirror rewrite — pushing a predicate that reads only the PRESERVED side
+below the join — is sound, and it is the one a planner actually wants. It is
+not proved in this file. `everyRowKeepsItsLeft` above is the substance of why
+it holds (every row a left row produces carries that left row as its prefix, so
+a left-only predicate decides the whole group at once), but turning that into
+the commutation over `flatMap` needs list machinery this file does not have
+yet, and I would rather leave the gap visible than write a proof I have not
+finished.
+
+Stating the unsound direction first is the right order regardless: the sound
+rewrite is the one everybody already believes, and the unsound one is the one
+that ships. -/
 
 end Pg.Rel
