@@ -1,4 +1,5 @@
 load("@rules_lean//lean:lean.bzl", "lean_library", "lean_main_test", "lean_olean_archive", "lean_test")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//lean:pg_ast_smoke.bzl", "PG_AST_CORE_SRCS", "pg_ast_smoke_test")
 load("//tools/regen:clusters.bzl", "CLUSTERS")
 load("//tools/regen:lean_emits.bzl", "wire_all_lean_emits")
@@ -472,4 +473,18 @@ lean_test(
     size = "small",
     srcs = ["Pg/Rel/Semantics.lean"],
     entry = "Pg/Rel/Semantics.lean",
+)
+
+# ⛔ THE ONE A `lean_test` CANNOT DO ITSELF.
+#
+# `sorry` warns and `lean` exits 0, so a lean_test over a file with a `sorry` in
+# it is GREEN. `Pg/Rel/Semantics.lean` sets `warningAsError` and therefore
+# refuses one; the other 113 files in this tree do not. This is the gate that
+# covers them. Read `no_sorry.sh` for what it deliberately does NOT check —
+# `native_decide` and `axiom` are load-bearing here, not debt.
+sh_test(
+    name = "no_sorry_test",
+    size = "small",
+    srcs = ["no_sorry.sh"],
+    data = glob(["**/*.lean"]),
 )

@@ -12,9 +12,9 @@ jobs:
   #
   # The name used to read `bazel test //...`, which overclaimed: this has never
   # run `//lean/...`, so the whole Lean model — the bulk of this repo — was
-  # outside CI. Renamed to what it actually does. //lean/... is not simply added
-  # here because it would pull the 19 Pg.Ir cluster emits into the fast gate;
-  # the olean_seam job below covers the compiled-artifact path instead.
+  # outside CI. Renamed to what it actually does. //lean/... stays out of THIS
+  # gate because it would pull the 19 Pg.Ir cluster emits into the fast path;
+  # the `proofs` job below runs it instead, off the critical path.
   test:
     name: bazel test //docs/... //examples/...
     runs-on: ${{ matrix.os }}
@@ -30,6 +30,34 @@ jobs:
           disk-cache: ${{ github.workflow }}-${{ matrix.os }}
           repository-cache: true
       - run: bazel test //docs/... //examples/... --test_output=errors
+
+  # ⛔ THE THEOREMS. Every `lean_test` in //lean, by WILDCARD.
+  #
+  # This job exists because renaming the gate above was honest but not a fix. It
+  # said out loud that the Lean model was outside CI and then left it there, and
+  # the very next Lean change — a denotational semantics whose entire content is
+  # theorems — went through seven green checks, NONE of which ran a single one of
+  # them. A gate that names what it does not cover is still not covering it.
+  #
+  # ⚠ `//lean:all`, never a list of targets. A list is exactly how this repo got
+  # here: `pg_core_compiled_consume_test` was named individually, so it stayed
+  # green while everything added beside it was ungated. A wildcard picks up the
+  # next theorem file whether or not anybody remembers this file exists.
+  #
+  # 128s cold locally for all 28. Its own job, so the slow emits never sit in
+  # front of the docs/examples gate.
+  proofs:
+    name: the theorems (linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bazel-contrib/setup-bazel@0.10.0
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.workflow }}-proofs
+          repository-cache: true
+      - run: bazel test //lean:all --test_output=errors
 
   # The compiled-olean seam, on LINUX.
   #

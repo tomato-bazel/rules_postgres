@@ -370,7 +370,7 @@
     "//postgres:extensions.bzl%pg": {
       "general": {
         "bzlTransitiveDigest": "CYQf3nqAk+sTZuMj7dWoFEdt+95LzbRgniXT0itXswo=",
-        "usagesDigest": "oimqn00kJtdYmTZ7tSxL/6U5QfZFbhFqti8ZGetG0dE=",
+        "usagesDigest": "TGHTjZZxzzgI5SyYNim07LtVK63oiY2N65mAzqfgKKM=",
         "recordedInputs": [
           "REPO_MAPPING:,rules_github rules_github+"
         ],
