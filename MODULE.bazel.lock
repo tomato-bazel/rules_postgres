@@ -505,7 +505,7 @@
     "@@rules_lean+//lean:lake.bzl%lake": {
       "general": {
         "bzlTransitiveDigest": "Fd/kRY9UIFQQuq05qGHzun4vw5FHLevdhkDAl1lQTo8=",
-        "usagesDigest": "KSijngU6jc5DzDxeOstY8yqytj+WOpQusG34aqvIt1U=",
+        "usagesDigest": "+T2O2QkQm2SvesUDUjjA+9mj4K4Xs4mFObGxoEQU6f8=",
         "recordedInputs": [
           "FILE:@@//tools/lake/lean-toolchain ce4c4e3d87434b9663f46de25ce34b48a0cf0d392e0a320a0787b4674a2d7b61",
           "FILE:@@rules_lang+//lean/lean-toolchain ce4c4e3d87434b9663f46de25ce34b48a0cf0d392e0a320a0787b4674a2d7b61"

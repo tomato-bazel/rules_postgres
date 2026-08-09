@@ -455,3 +455,21 @@ lean_test(
     entry = "Pg/Catalog/SnapshotEmitTest.lean",
     visibility = ["//visibility:public"],
 )
+
+# ─── Query semantics: the seam a planner needs ─────────────────────────────
+#
+# This repo models a query's SYNTAX and its TYPES. It does not say what a query
+# MEANS, and until something does, "this plan equals that plan" is not a
+# statement that can be made — so no rewrite can be justified, only tested.
+#
+# `Pg/Rel/Semantics.lean` is that denotation, over BAGS (SQL keeps duplicates)
+# and THREE-VALUED predicates (`WHERE` keeps only TRUE). It carries its own
+# counterexample: a SQL predicate and its negation DO NOT partition a table, so
+# a planner may prune with one and never reassemble. That is the classic
+# null-handling bug, stated before anything is built on top of it.
+lean_test(
+    name = "pg_rel_semantics_test",
+    size = "small",
+    srcs = ["Pg/Rel/Semantics.lean"],
+    entry = "Pg/Rel/Semantics.lean",
+)
