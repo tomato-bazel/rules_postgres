@@ -232,19 +232,35 @@ theorem pushdown_below_an_outer_join_is_unsound :
   refine ⟨fun t => if t = "a" then [[Val.num 1]] else [], .eqNum 1 5, "a", "b", 1, ?_⟩
   simp [denote, evalPred, cell]
 
-/- ⚠ WHAT IS *NOT* PROVED HERE, AND SHOULD BE NEXT.
-    
-The mirror rewrite — pushing a predicate that reads only the PRESERVED side
-below the join — is sound, and it is the one a planner actually wants. It is
-not proved in this file. `everyRowKeepsItsLeft` above is the substance of why
-it holds (every row a left row produces carries that left row as its prefix, so
-a left-only predicate decides the whole group at once), but turning that into
-the commutation over `flatMap` needs list machinery this file does not have
-yet, and I would rather leave the gap visible than write a proof I have not
-finished.
+/-- **What IS sound: a predicate on the PRESERVED side.**
 
-Stating the unsound direction first is the right order regardless: the sound
-rewrite is the one everybody already believes, and the unsound one is the one
-that ships. -/
+The mirror of the theorem above, and the rewrite a planner actually wants. A
+restriction that reads only the left row commutes with the join, because
+dropping that row before or after deciding what it matched gives the same rows
+either way.
+
+`hp` is the side condition and it is the whole distinction: the predicate must
+see the same values before and after the join. A predicate on the right side
+does not — after the join it can see nulls that did not exist before it, which
+is exactly `pushdown_below_an_outer_join_is_unsound`.
+
+The proof is one step per left row: `everyRowKeepsItsLeft` decides that row's
+whole group at once, and the induction carries the rest. -/
+theorem pushdown_into_the_preserved_side_is_sound (p : Pred) (a b : Plan) (w : Nat)
+    (hp : ∀ r s : Row, evalPred p (r ++ s) = evalPred p r) :
+    Plan.filter p (.leftJoin a b w) ≡ .leftJoin (.filter p a) b w := by
+  intro db
+  simp only [denote]
+  -- `denote db a` is not a variable, so inducting on it leaves an induction
+  -- hypothesis that does not apply. Generalise first.
+  generalize denote db a = as
+  induction as with
+  | nil => simp
+  | cons r rest ih =>
+    rw [List.flatMap_cons, List.filter_append, ih,
+        everyRowKeepsItsLeft p r _ hp, List.filter_cons]
+    by_cases h : evalPred p r == Three.yes
+    · rw [if_pos h, if_pos h, List.flatMap_cons]
+    · rw [if_neg h, if_neg h, List.nil_append]
 
 end Pg.Rel
