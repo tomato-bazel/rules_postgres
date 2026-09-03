@@ -30,6 +30,12 @@ jobs:
           disk-cache: ${{ github.workflow }}-${{ matrix.os }}
           repository-cache: true
       - run: bazel test //docs/... //examples/... --test_output=errors
+      # Producer half of the prebuilt SQL toolchain: pack sql_to_protobuf +
+      # pg_query.proto. Same libpg_query compile the examples job already paid
+      # for, so this is cheap on a warm disk-cache and is the actual artifact
+      # this PR adds. Follow-up consume/publish CI is out of scope.
+      - name: producer — sql_toolchain_bin
+        run: bazel build //release:sql_toolchain_bin //release:sql_toolchain_bin_sha256
 
   # ⛔ THE THEOREMS. Every `lean_test` in //lean, by WILDCARD.
   #
