@@ -4,6 +4,16 @@ All notable changes to rules_postgres. The format is loosely
 [Keep a Changelog](https://keepachangelog.com/) — version headers
 mirror the published bazel-registry entries.
 
+## 0.13.0 — query-plan proofs and SQL-toolchain archive producer
+
+- Add denotational semantics for query plans and prove selection and projection
+  pushdown rewrites in Lean. CI now runs all Lean theorem targets.
+- Add `//release:sql_toolchain_bin` and its SHA-256 target to package the SQL
+  parser and its proto descriptor, with producer validation on Linux and macOS.
+  Automatic artifact publishing and a prebuilt consumer toolchain remain
+  separate follow-up work.
+
+
 ## 0.12.0 — `Pg.*` as compiled oleans
 
 Consumers take `Pg.*` as **source**: the `exports_files` glob in `lean/BUILD.bazel`
